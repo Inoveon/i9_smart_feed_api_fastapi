@@ -90,22 +90,63 @@ scp_copy() {
     if [ -f ".deployignore" ]; then
         echo -e "${BLUE}📋 Aplicando regras do .deployignore...${NC}"
         
-        # Criar lista temporária de exclusões para rsync
-        RSYNC_EXCLUDES=""
-        while IFS= read -r line; do
-            # Pular linhas vazias e comentários
-            if [[ -n "$line" && ! "$line" =~ ^[[:space:]]*# ]]; then
-                RSYNC_EXCLUDES="$RSYNC_EXCLUDES --exclude=$line"
+        # Tentar rsync primeiro, se falhar usar scp com exclusões manuais
+        if command -v rsync >/dev/null 2>&1; then
+            # Criar lista temporária de exclusões para rsync
+            RSYNC_EXCLUDES=""
+            while IFS= read -r line; do
+                # Pular linhas vazias e comentários
+                if [[ -n "$line" && ! "$line" =~ ^[[:space:]]*# ]]; then
+                    RSYNC_EXCLUDES="$RSYNC_EXCLUDES --exclude=$line"
+                fi
+            done < .deployignore
+            
+            # Tentar rsync
+            if rsync -avz $RSYNC_EXCLUDES -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no" \
+                "$source_path" ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/${dest_path}; then
+                return 0
+            else
+                echo -e "${YELLOW}⚠️  rsync falhou, usando método alternativo...${NC}"
             fi
-        done < .deployignore
+        fi
         
-        # Usar rsync em vez de scp para respeitar exclusões
-        rsync -avz $RSYNC_EXCLUDES -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no" \
-            "$source_path" ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/${dest_path}
+        # Fallback: usar scp mas verificar se deve copiar
+        if should_copy_path "$source_path"; then
+            scp -i "$SSH_KEY" -o StrictHostKeyChecking=no -r "$source_path" ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/${dest_path}
+        else
+            echo -e "${YELLOW}⚠️  Pulando $source_path (excluído pelo .deployignore)${NC}"
+        fi
     else
         # Fallback para scp normal
         scp -i "$SSH_KEY" -o StrictHostKeyChecking=no -r "$source_path" ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/${dest_path}
     fi
+}
+
+# Função para verificar se um caminho deve ser copiado
+should_copy_path() {
+    local path="$1"
+    
+    # Se não há .deployignore, sempre copiar
+    if [ ! -f ".deployignore" ]; then
+        return 0
+    fi
+    
+    # Verificar cada linha do .deployignore
+    while IFS= read -r line; do
+        # Pular linhas vazias e comentários
+        if [[ -n "$line" && ! "$line" =~ ^[[:space:]]*# ]]; then
+            # Remover trailing slash para comparação
+            pattern=$(echo "$line" | sed 's:/$::')
+            path_clean=$(echo "$path" | sed 's:/$::')
+            
+            # Verificar se o caminho corresponde ao padrão
+            if [[ "$path_clean" == *"$pattern"* ]] || [[ "$path_clean" == "$pattern" ]]; then
+                return 1  # Não copiar
+            fi
+        fi
+    done < .deployignore
+    
+    return 0  # Copiar
 }
 
 # Função para verificar estado do banco de dados
