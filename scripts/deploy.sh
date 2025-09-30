@@ -243,14 +243,7 @@ backup_before_deploy() {
 ensure_persistent_volumes() {
     echo -e "${YELLOW}📦 Garantindo volumes persistentes...${NC}"
     
-    # Criar volumes se não existirem (usando docker-compose)
-    if [ "$ENV" = "production" ]; then
-        ssh_exec "cd ${REMOTE_DIR} && sudo docker-compose -f docker-compose.yml up --no-start"
-    else
-        ssh_exec "cd ${REMOTE_DIR} && docker-compose -f docker-compose.yml up --no-start"
-    fi
-    
-    # Verificar se volumes existem
+    # Verificar se volumes existem e criar se necessário
     VOLUMES=("feed-static" "feed-uploads" "feed-media" "redis-data")
     for volume in "${VOLUMES[@]}"; do
         if [ "$ENV" = "production" ]; then
@@ -381,15 +374,44 @@ ensure_persistent_volumes
 apply_database_migrations
 
 # 9. Iniciar novos containers com volumes persistentes
-echo -e "${YELLOW}🚀 Iniciando containers com docker-compose...${NC}"
+echo -e "${YELLOW}🚀 Iniciando containers...${NC}"
 
-# Definir variáveis de ambiente para docker-compose
-ssh_exec "cd ${REMOTE_DIR} && export VERSION=${ENV} && export APP_PORT=${APP_PORT} && export REDIS_PORT=${REDIS_PORT}"
-
+# Iniciar Redis primeiro
+echo -e "${BLUE}📦 Iniciando Redis...${NC}"
 if [ "$ENV" = "production" ]; then
-    ssh_exec "cd ${REMOTE_DIR} && sudo docker-compose -f docker-compose.yml up -d"
+    ssh_exec "sudo docker run -d --name i9-feed-redis \
+        -p ${REDIS_PORT}:6379 \
+        -v redis-data:/data \
+        --restart unless-stopped \
+        redis:7-alpine redis-server --appendonly yes --appendfsync everysec" || echo -e "${YELLOW}⚠️  Redis já rodando${NC}"
 else
-    ssh_exec "cd ${REMOTE_DIR} && docker-compose -f docker-compose.yml up -d"
+    ssh_exec "docker run -d --name i9-feed-redis \
+        -p ${REDIS_PORT}:6379 \
+        -v redis-data:/data \
+        --restart unless-stopped \
+        redis:7-alpine redis-server --appendonly yes --appendfsync everysec" || echo -e "${YELLOW}⚠️  Redis já rodando${NC}"
+fi
+
+# Iniciar API
+echo -e "${BLUE}🚀 Iniciando API...${NC}"
+if [ "$ENV" = "production" ]; then
+    ssh_exec "sudo docker run -d --name i9-feed-api \
+        -p ${APP_PORT}:8000 \
+        -v feed-static:/app/static \
+        -v feed-uploads:/app/uploads \
+        -v feed-media:/app/media \
+        --env-file ${REMOTE_DIR}/.env \
+        --restart unless-stopped \
+        ${IMAGE_NAME}:${ENV}"
+else
+    ssh_exec "docker run -d --name i9-feed-api \
+        -p ${APP_PORT}:8000 \
+        -v feed-static:/app/static \
+        -v feed-uploads:/app/uploads \
+        -v feed-media:/app/media \
+        --env-file ${REMOTE_DIR}/.env \
+        --restart unless-stopped \
+        ${IMAGE_NAME}:${ENV}"
 fi
 
 # 8. Verificar se está rodando
