@@ -1,0 +1,105 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+*.log
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+.ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project specific
+.env
+.env.*
+!.env.example
+.env.deploy
+*.sqlite
+*.db
+tests/
+docs/
+scripts/
+site/
+mkdocs.yml
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+CHANGELOG.md
+CLAUDE.md
+DEPLOY-SYSTEM.md
+*.md
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Development
+Makefile
+setup-ssh.sh
+deploy.sh
+pytest.ini
+.pylintrc
+.flake8
+mypy.ini
+.pre-commit-config.yaml
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# Archives
+*.tar
+*.tar.gz
+*.zip
+*.rar
+
+# Logs
+logs/
+*.log
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Security
+*.pem
+*.key
+*.crt
+*.csr
+
+# Node (if any frontend build tools)
+node_modules/
+npm-debug.log
+yarn-error.log

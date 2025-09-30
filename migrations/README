@@ -1,0 +1,4 @@
+Alembic migration environment for i9 Smart Campaigns API.
+
+Use `make migrate-create name="message"` to create a new revision and `make migrate` to apply.
+

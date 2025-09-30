@@ -1,0 +1,109 @@
+### Variáveis de ambiente
+@baseUrl = http://localhost:8000
+@apiKey = i9smart_campaigns_readonly_2025
+@stationId = 001
+
+
+### Login (gera access_token e refresh_token)
+# @name login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/x-www-form-urlencoded
+
+username=admin&password=admin123
+
+### Capturar o accessToken da resposta
+@accessToken = {{login.response.body.access_token}}
+@refreshToken = {{login.response.body.refresh_token}}
+
+
+### Refresh Token
+POST {{baseUrl}}/api/auth/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "{{refreshToken}}"
+}
+
+
+### Listar campanhas (requer Bearer token)
+GET {{baseUrl}}/api/campaigns/
+Authorization: Bearer {{accessToken}}
+
+
+### Criar campanha
+# @name createCampaign
+POST {{baseUrl}}/api/campaigns/
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "name": "Campanha Exemplo",
+  "description": "Criada via rest.http",
+  "status": "active",
+  "start_date": "2025-01-22T00:00:00Z",
+  "end_date": "2025-12-31T23:59:59Z",
+  "default_display_time": 5000,
+  "stations": ["001", "002"],
+  "priority": 1
+}
+
+
+### Detalhar campanha criada
+GET {{baseUrl}}/api/campaigns/{{createCampaign.response.body.id}}
+Authorization: Bearer {{accessToken}}
+
+
+### Atualizar campanha
+PUT {{baseUrl}}/api/campaigns/{{createCampaign.response.body.id}}
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "description": "Descrição atualizada",
+  "priority": 2
+}
+
+
+### Listar campanhas ativas por posto (portal)
+GET {{baseUrl}}/api/campaigns/active/{{stationId}}
+Authorization: Bearer {{accessToken}}
+
+
+### Listar campanhas ativas por posto (tablets via API Key)
+GET {{baseUrl}}/api/tablets/active/{{stationId}}
+X-API-Key: {{apiKey}}
+
+
+### Upload de imagens (exemplo com multipart/form-data)
+### Observação: ajuste o boundary e os caminhos dos arquivos antes de usar
+POST {{baseUrl}}/api/campaigns/{{createCampaign.response.body.id}}/images
+Authorization: Bearer {{accessToken}}
+Content-Type: multipart/form-data; boundary=Boundary123
+
+--Boundary123
+Content-Disposition: form-data; name="files"; filename="image1.jpg"
+Content-Type: image/jpeg
+
+< ./tests/assets/image1.jpg
+--Boundary123
+Content-Disposition: form-data; name="files"; filename="image2.png"
+Content-Type: image/png
+
+< ./tests/assets/image2.png
+--Boundary123--
+
+
+### Reordenar imagens (substitua pelos IDs retornados no upload)
+PUT {{baseUrl}}/api/campaigns/{{createCampaign.response.body.id}}/images/order
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+[
+  "00000000-0000-0000-0000-000000000001",
+  "00000000-0000-0000-0000-000000000002"
+]
+
+
+### Remover campanha (soft delete)
+DELETE {{baseUrl}}/api/campaigns/{{createCampaign.response.body.id}}
+Authorization: Bearer {{accessToken}}

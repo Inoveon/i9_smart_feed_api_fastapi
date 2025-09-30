@@ -1,0 +1,49 @@
+# Core
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-dotenv==1.0.0
+
+# Database
+sqlalchemy==2.0.25
+alembic==1.13.1
+psycopg2-binary==2.9.9
+
+# Cache
+redis==5.0.1
+
+# Storage
+minio==7.2.3
+
+# Validation
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+# Compat com passlib 1.7.4
+bcrypt==3.2.2
+
+# File handling
+python-multipart==0.0.6
+pillow==10.2.0
+
+# HTTP Client
+httpx==0.26.0
+
+# Monitoring & Metrics
+psutil==6.1.1
+
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
+pytest-cov==4.1.0
+
+# Code Quality
+black==23.12.1
+flake8==7.0.0
+mypy==1.8.0
+bandit==1.7.6
+
+# Development tools
+pip-tools==7.3.0
