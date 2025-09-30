@@ -1,7 +1,11 @@
 #!/bin/bash
 
-# Deploy Script Unificado para i9 Smart Feed API
+# ================================================
+# Deploy Script Melhorado - i9 Smart Feed API
+# ================================================
+# NOVA VERSÃO com proteção de dados e verificações de banco
 # Uso: ./deploy.sh [development|homolog|production]
+# ================================================
 
 set -e  # Para o script se houver erro
 
@@ -10,6 +14,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Determinar ambiente
@@ -28,7 +33,14 @@ CONTAINER_NAME="i9-feed-api"
 REDIS_CONTAINER="i9-feed-redis"
 
 ENV_UPPER=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')
-echo -e "${GREEN}🚀 Deploy para ${ENV_UPPER}${NC}"
+
+# Banner
+echo ""
+echo -e "${CYAN}================================================${NC}"
+echo -e "${CYAN}    🚀 Deploy i9 Smart Feed API - ${ENV_UPPER}    ${NC}"
+echo -e "${CYAN}    ✨ Versão Melhorada com Proteção de Dados    ${NC}"
+echo -e "${CYAN}================================================${NC}"
+echo ""
 
 # Tratamento para desenvolvimento
 if [ "$ENV" = "development" ]; then
@@ -69,9 +81,179 @@ ssh_exec() {
     ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ${SSH_USER}@${SSH_HOST} "$@"
 }
 
-# Função para copiar arquivos via SCP
+# Função para copiar arquivos via SCP (respeitando .deployignore)
 scp_copy() {
-    scp -i "$SSH_KEY" -o StrictHostKeyChecking=no -r "$@" ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/
+    local source_path="$1"
+    local dest_path="${2:-./}"
+    
+    # Verificar se .deployignore existe
+    if [ -f ".deployignore" ]; then
+        echo -e "${BLUE}📋 Aplicando regras do .deployignore...${NC}"
+        
+        # Criar lista temporária de exclusões para rsync
+        RSYNC_EXCLUDES=""
+        while IFS= read -r line; do
+            # Pular linhas vazias e comentários
+            if [[ -n "$line" && ! "$line" =~ ^[[:space:]]*# ]]; then
+                RSYNC_EXCLUDES="$RSYNC_EXCLUDES --exclude=$line"
+            fi
+        done < .deployignore
+        
+        # Usar rsync em vez de scp para respeitar exclusões
+        rsync -avz $RSYNC_EXCLUDES -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no" \
+            "$source_path" ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/${dest_path}
+    else
+        # Fallback para scp normal
+        scp -i "$SSH_KEY" -o StrictHostKeyChecking=no -r "$source_path" ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/${dest_path}
+    fi
+}
+
+# Função para verificar estado do banco de dados
+check_database_status() {
+    echo -e "${YELLOW}🔍 Verificando estado do banco de dados...${NC}"
+    
+    # Copiar script de verificação para o servidor
+    scp -i "$SSH_KEY" -o StrictHostKeyChecking=no \
+        scripts/check_database.py ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/
+    
+    # Executar verificação no servidor
+    DB_STATUS=$(ssh_exec "cd ${REMOTE_DIR} && python3 check_database.py" || echo "ERROR")
+    
+    case "$DB_STATUS" in
+        *"BANCO_NAO_EXISTE"*)
+            echo -e "${RED}❌ Banco de dados não existe ou não acessível${NC}"
+            return 1
+            ;;
+        *"PRIMEIRA_INSTALACAO"*)
+            echo -e "${YELLOW}🆕 Primeira instalação detectada - banco existe mas sem estrutura${NC}"
+            DATABASE_ACTION="INIT"
+            ;;
+        *"MIGRACOES_PENDENTES"*)
+            echo -e "${BLUE}🔄 Migrações pendentes detectadas${NC}"
+            DATABASE_ACTION="MIGRATE"
+            ;;
+        *"BANCO_ATUALIZADO"*)
+            echo -e "${GREEN}✅ Banco de dados já está atualizado${NC}"
+            DATABASE_ACTION="NONE"
+            ;;
+        *)
+            echo -e "${RED}❌ Erro ao verificar banco: $DB_STATUS${NC}"
+            return 1
+            ;;
+    esac
+    
+    return 0
+}
+
+# Função para aplicar migrações de banco condicionalmente
+apply_database_migrations() {
+    case "$DATABASE_ACTION" in
+        "INIT")
+            echo -e "${YELLOW}🏗️ Inicializando estrutura do banco de dados...${NC}"
+            if [ "$ENV" = "production" ]; then
+                ssh_exec "cd ${REMOTE_DIR} && sudo docker run --rm --env-file .env --network host ${IMAGE_NAME}:${ENV} alembic upgrade head"
+            else
+                ssh_exec "cd ${REMOTE_DIR} && docker run --rm --env-file .env --network host ${IMAGE_NAME}:${ENV} alembic upgrade head"
+            fi
+            
+            # Executar dados iniciais se necessário
+            init_database_data
+            ;;
+        "MIGRATE")
+            echo -e "${YELLOW}🔄 Aplicando migrações pendentes...${NC}"
+            if [ "$ENV" = "production" ]; then
+                ssh_exec "cd ${REMOTE_DIR} && sudo docker run --rm --env-file .env --network host ${IMAGE_NAME}:${ENV} alembic upgrade head"
+            else
+                ssh_exec "cd ${REMOTE_DIR} && docker run --rm --env-file .env --network host ${IMAGE_NAME}:${ENV} alembic upgrade head"
+            fi
+            ;;
+        "NONE")
+            echo -e "${GREEN}✅ Banco já está atualizado - pulando migrações${NC}"
+            ;;
+    esac
+}
+
+# Função para inicializar dados do banco (primeira instalação)
+init_database_data() {
+    echo -e "${YELLOW}🌱 Inicializando dados básicos do banco...${NC}"
+    
+    # Aqui você pode adicionar dados iniciais necessários
+    # Por exemplo: usuário admin, configurações padrão, etc.
+    
+    # Exemplo (descomente se necessário):
+    # if [ "$ENV" = "production" ]; then
+    #     ssh_exec "cd ${REMOTE_DIR} && sudo docker run --rm --env-file .env --network host ${IMAGE_NAME}:${ENV} python -c \"
+    # from app.database import init_db
+    # from app.core.config import settings
+    # init_db()
+    # print('✅ Dados iniciais criados')
+    # \""
+    # fi
+    
+    echo -e "${GREEN}✅ Dados iniciais configurados${NC}"
+}
+
+# Função para fazer backup antes de deploy crítico
+backup_before_deploy() {
+    if [ "$ENV" = "production" ] || [ "$FORCE_BACKUP" = "1" ]; then
+        echo -e "${YELLOW}💾 Fazendo backup antes do deploy...${NC}"
+        
+        # Backup simples e direto
+        BACKUP_DATE=$(date +%Y%m%d_%H%M%S)
+        BACKUP_DIR="/home/${SSH_USER}/backup"
+        
+        # Criar diretório de backup simples
+        ssh_exec "mkdir -p ${BACKUP_DIR}" || {
+            echo -e "${YELLOW}⚠️  Usando backup em /tmp...${NC}"
+            BACKUP_DIR="/tmp/backup"
+            ssh_exec "mkdir -p ${BACKUP_DIR}"
+        }
+        
+        # Backup básico dos volumes
+        echo -e "${BLUE}📦 Backup dos volumes Docker...${NC}"
+        if [ "$ENV" = "production" ]; then
+            ssh_exec "sudo docker run --rm -v feed-static:/backup-source:ro -v ${BACKUP_DIR}:/backup-dest alpine tar -czf /backup-dest/feed-static_${BACKUP_DATE}.tar.gz -C /backup-source ." 2>/dev/null || echo -e "${YELLOW}⚠️  Backup de static falhou${NC}"
+            ssh_exec "sudo docker run --rm -v feed-uploads:/backup-source:ro -v ${BACKUP_DIR}:/backup-dest alpine tar -czf /backup-dest/feed-uploads_${BACKUP_DATE}.tar.gz -C /backup-source ." 2>/dev/null || echo -e "${YELLOW}⚠️  Backup de uploads falhou${NC}"
+        else
+            ssh_exec "docker run --rm -v feed-static:/backup-source:ro -v ${BACKUP_DIR}:/backup-dest alpine tar -czf /backup-dest/feed-static_${BACKUP_DATE}.tar.gz -C /backup-source ." 2>/dev/null || echo -e "${YELLOW}⚠️  Backup de static falhou${NC}"
+            ssh_exec "docker run --rm -v feed-uploads:/backup-source:ro -v ${BACKUP_DIR}:/backup-dest alpine tar -czf /backup-dest/feed-uploads_${BACKUP_DATE}.tar.gz -C /backup-source ." 2>/dev/null || echo -e "${YELLOW}⚠️  Backup de uploads falhou${NC}"
+        fi
+        
+        echo -e "${GREEN}✅ Backup básico concluído em ${BACKUP_DIR}${NC}"
+    fi
+}
+
+# Função para garantir volumes persistentes
+ensure_persistent_volumes() {
+    echo -e "${YELLOW}📦 Garantindo volumes persistentes...${NC}"
+    
+    # Criar volumes se não existirem (usando docker-compose)
+    if [ "$ENV" = "production" ]; then
+        ssh_exec "cd ${REMOTE_DIR} && sudo docker-compose -f docker-compose.yml up --no-start"
+    else
+        ssh_exec "cd ${REMOTE_DIR} && docker-compose -f docker-compose.yml up --no-start"
+    fi
+    
+    # Verificar se volumes existem
+    VOLUMES=("feed-static" "feed-uploads" "feed-media" "redis-data")
+    for volume in "${VOLUMES[@]}"; do
+        if [ "$ENV" = "production" ]; then
+            VOLUME_EXISTS=$(ssh_exec "sudo docker volume ls -q -f name=${volume}" || echo "")
+        else
+            VOLUME_EXISTS=$(ssh_exec "docker volume ls -q -f name=${volume}" || echo "")
+        fi
+        
+        if [ -n "$VOLUME_EXISTS" ]; then
+            echo -e "${GREEN}✅ Volume ${volume} já existe${NC}"
+        else
+            echo -e "${YELLOW}🆕 Criando volume ${volume}${NC}"
+            if [ "$ENV" = "production" ]; then
+                ssh_exec "sudo docker volume create ${volume}"
+            else
+                ssh_exec "docker volume create ${volume}"
+            fi
+        fi
+    done
 }
 
 echo -e "${YELLOW}📍 Servidor: ${SSH_HOST}${NC}"
@@ -121,18 +303,30 @@ fi
 # Criar subdiretórios
 ssh_exec "mkdir -p ${REMOTE_DIR}/{app,migrations,static,repo}"
 
-# 3. Transferir arquivos
-echo -e "${YELLOW}📤 Transferindo arquivos para o servidor...${NC}"
+# 3. Fazer backup se necessário
+backup_before_deploy
 
-# Transferir aplicação
+# 4. Transferir arquivos (PROTEGIDO - não sobrescreve static/)
+echo -e "${YELLOW}📤 Transferindo arquivos para o servidor (protegendo dados)...${NC}"
+
+# Transferir aplicação e migrações
 scp_copy app/
 scp_copy migrations/
-[ -d "static" ] && scp_copy static/ || echo -e "${YELLOW}ℹ️  Pasta static não encontrada, pulando...${NC}"
+scp_copy scripts/
+
+# ❌ IMPORTANTE: NÃO transferir static/ - preservar dados do usuário
+echo -e "${GREEN}🛡️  Pasta static/ PROTEGIDA - não será sobrescrita${NC}"
+
+# Transferir repo se existir (apenas para desenvolvimento)
 [ -d "repo" ] && scp_copy repo/ || echo -e "${YELLOW}ℹ️  Pasta repo não encontrada, pulando...${NC}"
 
 # Transferir arquivos de configuração
-scp_copy Dockerfile docker-compose.yml requirements.txt alembic.ini
+scp_copy Dockerfile
+scp_copy docker-compose.yml  
+scp_copy requirements.txt
+scp_copy alembic.ini
 [ -f ".dockerignore" ] && scp_copy .dockerignore || true
+[ -f ".deployignore" ] && scp_copy .deployignore || true
 
 # Transferir arquivo de ambiente apropriado
 if [ "$ENV" = "production" ] && [ -f ".env.production" ]; then
@@ -158,24 +352,28 @@ else
     ssh_exec "docker stop ${CONTAINER_NAME} ${REDIS_CONTAINER} 2>/dev/null || true && docker rm ${CONTAINER_NAME} ${REDIS_CONTAINER} 2>/dev/null || true"
 fi
 
-# 6. Executar migrações de banco de dados
-echo -e "${YELLOW}🗄️ Executando migrações de banco de dados...${NC}"
-if [ "$ENV" = "production" ]; then
-    ssh_exec "cd ${REMOTE_DIR} && sudo docker run --rm --env-file .env --network host ${IMAGE_NAME}:${ENV} alembic upgrade head" || echo -e "${YELLOW}⚠️  Migrações falharam ou não necessárias${NC}"
-else
-    ssh_exec "cd ${REMOTE_DIR} && docker run --rm --env-file .env --network host ${IMAGE_NAME}:${ENV} alembic upgrade head" || echo -e "${YELLOW}⚠️  Migrações falharam ou não necessárias${NC}"
+# 6. Verificar estado do banco e aplicar migrações condicionalmente
+if ! check_database_status; then
+    echo -e "${RED}❌ Falha na verificação do banco de dados${NC}"
+    exit 1
 fi
 
-# 7. Iniciar novos containers
-echo -e "${YELLOW}🚀 Iniciando novos containers...${NC}"
+# 7. Garantir volumes persistentes antes de iniciar containers
+ensure_persistent_volumes
+
+# 8. Aplicar migrações baseado no estado do banco
+apply_database_migrations
+
+# 9. Iniciar novos containers com volumes persistentes
+echo -e "${YELLOW}🚀 Iniciando containers com docker-compose...${NC}"
+
+# Definir variáveis de ambiente para docker-compose
+ssh_exec "cd ${REMOTE_DIR} && export VERSION=${ENV} && export APP_PORT=${APP_PORT} && export REDIS_PORT=${REDIS_PORT}"
+
 if [ "$ENV" = "production" ]; then
-    ssh_exec "cd ${REMOTE_DIR} && sudo docker run -d --name ${CONTAINER_NAME} -p ${APP_PORT}:8000 --env-file .env --restart unless-stopped ${IMAGE_NAME}:${ENV}"
-    # Iniciar Redis se necessário
-    ssh_exec "sudo docker run -d --name ${REDIS_CONTAINER} -p ${REDIS_PORT}:6379 --restart unless-stopped redis:alpine" 2>/dev/null || echo -e "${YELLOW}ℹ️  Redis já rodando ou não necessário${NC}"
+    ssh_exec "cd ${REMOTE_DIR} && sudo docker-compose -f docker-compose.yml up -d"
 else
-    ssh_exec "cd ${REMOTE_DIR} && docker run -d --name ${CONTAINER_NAME} -p ${APP_PORT}:8000 --env-file .env --restart unless-stopped ${IMAGE_NAME}:${ENV}"
-    # Iniciar Redis se necessário
-    ssh_exec "docker run -d --name ${REDIS_CONTAINER} -p ${REDIS_PORT}:6379 --restart unless-stopped redis:alpine" 2>/dev/null || echo -e "${YELLOW}ℹ️  Redis já rodando ou não necessário${NC}"
+    ssh_exec "cd ${REMOTE_DIR} && docker-compose -f docker-compose.yml up -d"
 fi
 
 # 8. Verificar se está rodando

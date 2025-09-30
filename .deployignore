@@ -1,0 +1,76 @@
+# ================================================
+# Deploy Ignore - i9 Smart Feed API
+# ================================================
+# Arquivos e pastas que NÃO devem ser enviados no deploy
+# para preservar dados do usuário e otimizar transferência
+# ================================================
+
+# Dados dinâmicos (NUNCA sobrescrever)
+static/
+uploads/
+media/
+
+# Arquivos de log
+*.log
+logs/
+log/
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Ambientes virtuais
+venv/
+env/
+.venv/
+.env/
+
+# Arquivos de desenvolvimento
+.pytest_cache/
+.coverage
+.tox/
+.cache/
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Arquivos temporários
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-*
+
+# Git files
+.git/
+.gitignore
+
+# Configurações locais
+.env.local
+.env.*.local
+
+# Certificados e chaves
+*.pem
+*.key
+*.crt
+*.p12
+
+# Dados de teste
+test_data/
+fixtures/
+dumps/
