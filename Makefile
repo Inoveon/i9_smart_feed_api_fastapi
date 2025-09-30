@@ -270,45 +270,48 @@ all: clean install test lint ## Clean, install, test and lint
 
 setup-ssh: ## Configure SSH authentication for deploy (run once)
 	@echo "$(CYAN)Configurando autenticação SSH...$(NC)"
-	@chmod +x setup-ssh.sh
-	@./setup-ssh.sh
+	@chmod +x scripts/setup-ssh.sh
+	@./scripts/setup-ssh.sh
 	@echo "$(GREEN)✓ SSH configurado$(NC)"
+
+deploy-development: ## Inicia servidor de desenvolvimento local
+	@bash scripts/deploy.sh development
 
 deploy-homolog: ## Deploy to homologation environment
 	@echo "$(CYAN)Deploying to homologation...$(NC)"
-	@chmod +x deploy.sh
-	@./deploy.sh homolog
+	@chmod +x scripts/deploy.sh
+	@./scripts/deploy.sh homolog
 	
 deploy-production: ## Deploy to production environment
 	@echo "$(RED)⚠ Deploying to PRODUCTION!$(NC)"
 	@echo "$(YELLOW)Press Ctrl+C to cancel...$(NC)"
 	@sleep 3
-	@chmod +x deploy.sh
-	@./deploy.sh production
+	@chmod +x scripts/deploy.sh
+	@./scripts/deploy.sh production
 
 deploy-status: ## Check deployment status
 	@echo "$(CYAN)Checking deployment status...$(NC)"
-	@if [ -f .env.deploy ]; then \
-		. .env.deploy && \
-		ssh $$SSH_ALIAS "docker ps --filter name=i9-campaigns --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"; \
+	@if [ -f .env.deploy.homolog ]; then \
+		. .env.deploy.homolog && \
+		ssh -i "$$SSH_KEY" $$SSH_USER@$$SSH_HOST "docker ps --filter name=i9-feed --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"; \
 	else \
 		echo "$(RED)Run 'make setup-ssh' first$(NC)"; \
 	fi
 
 deploy-logs: ## Show deployment logs
 	@echo "$(CYAN)Showing deployment logs...$(NC)"
-	@if [ -f .env.deploy ]; then \
-		. .env.deploy && \
-		ssh $$SSH_ALIAS "docker logs -f --tail 100 i9-campaigns-api"; \
+	@if [ -f .env.deploy.homolog ]; then \
+		. .env.deploy.homolog && \
+		ssh -i "$$SSH_KEY" $$SSH_USER@$$SSH_HOST "docker logs -f --tail 100 i9-feed-api"; \
 	else \
 		echo "$(RED)Run 'make setup-ssh' first$(NC)"; \
 	fi
 
 deploy-restart: ## Restart deployed containers
 	@echo "$(CYAN)Restarting containers...$(NC)"
-	@if [ -f .env.deploy ]; then \
-		. .env.deploy && \
-		ssh $$SSH_ALIAS "docker restart i9-campaigns-api i9-campaigns-redis" && \
+	@if [ -f .env.deploy.homolog ]; then \
+		. .env.deploy.homolog && \
+		ssh -i "$$SSH_KEY" $$SSH_USER@$$SSH_HOST "docker restart i9-feed-api i9-feed-redis" && \
 		echo "$(GREEN)✓ Containers restarted$(NC)"; \
 	else \
 		echo "$(RED)Run 'make setup-ssh' first$(NC)"; \
@@ -316,45 +319,45 @@ deploy-restart: ## Restart deployed containers
 
 deploy-shell: ## Access deployed container shell
 	@echo "$(CYAN)Accessing container shell...$(NC)"
-	@if [ -f .env.deploy ]; then \
-		. .env.deploy && \
-		ssh $$SSH_ALIAS "docker exec -it i9-campaigns-api /bin/bash"; \
+	@if [ -f .env.deploy.homolog ]; then \
+		. .env.deploy.homolog && \
+		ssh -i "$$SSH_KEY" $$SSH_USER@$$SSH_HOST "docker exec -it i9-feed-api /bin/bash"; \
 	else \
 		echo "$(RED)Run 'make setup-ssh' first$(NC)"; \
 	fi
 
 deploy-ssh: ## SSH to deployment server
 	@echo "$(CYAN)Connecting to deployment server...$(NC)"
-	@if [ -f .env.deploy ]; then \
-		. .env.deploy && \
-		ssh $$SSH_ALIAS; \
+	@if [ -f .env.deploy.homolog ]; then \
+		. .env.deploy.homolog && \
+		ssh -i "$$SSH_KEY" $$SSH_USER@$$SSH_HOST; \
 	else \
 		echo "$(RED)Run 'make setup-ssh' first$(NC)"; \
 	fi
 
 deploy-info: ## Show deployment configuration
 	@echo "$(CYAN)Deployment Configuration:$(NC)"
-	@if [ -f .env.deploy ]; then \
-		. .env.deploy && \
+	@if [ -f .env.deploy.homolog ]; then \
+		. .env.deploy.homolog && \
 		echo "  Server: $$SSH_HOST" && \
 		echo "  User: $$SSH_USER" && \
 		echo "  Key: $$SSH_KEY" && \
-		echo "  Remote Dir: /docker/i9-smart/campaigns_api" && \
+		echo "  Remote Dir: $$REMOTE_DIR" && \
 		echo "" && \
 		echo "$(CYAN)URLs:$(NC)" && \
 		echo "  Homolog API: http://$$SSH_HOST:8001" && \
 		echo "  Homolog Docs: http://$$SSH_HOST:8001/docs" && \
-		echo "  Production API: http://$$SSH_HOST:8000" && \
-		echo "  Production Docs: http://$$SSH_HOST:8000/docs"; \
+		echo "  Production API: http://172.16.2.90:8000" && \
+		echo "  Production Docs: http://172.16.2.90:8000/docs"; \
 	else \
 		echo "$(RED)Run 'make setup-ssh' first$(NC)"; \
 	fi
 
 deploy-clean: ## Clean deployment artifacts
 	@echo "$(CYAN)Cleaning deployment artifacts...$(NC)"
-	@if [ -f .env.deploy ]; then \
-		. .env.deploy && \
-		ssh $$SSH_ALIAS "docker image prune -f && docker volume prune -f" && \
+	@if [ -f .env.deploy.homolog ]; then \
+		. .env.deploy.homolog && \
+		ssh -i "$$SSH_KEY" $$SSH_USER@$$SSH_HOST "docker image prune -f && docker volume prune -f" && \
 		echo "$(GREEN)✓ Cleanup completed$(NC)"; \
 	else \
 		echo "$(RED)Run 'make setup-ssh' first$(NC)"; \
