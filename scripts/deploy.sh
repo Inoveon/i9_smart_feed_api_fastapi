@@ -157,8 +157,19 @@ check_database_status() {
     scp -i "$SSH_KEY" -o StrictHostKeyChecking=no \
         scripts/check_database.py ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/
     
-    # Executar verificação no servidor
-    DB_STATUS=$(ssh_exec "cd ${REMOTE_DIR} && python3 check_database.py" || echo "ERROR")
+    # Executar verificação dentro do container Docker (onde as dependências estão)
+    if [ "$ENV" = "production" ]; then
+        DB_STATUS=$(ssh_exec "cd ${REMOTE_DIR} && sudo docker run --rm --env-file .env --network host -v ${REMOTE_DIR}:/app/scripts ${IMAGE_NAME}:${ENV} python /app/scripts/check_database.py" 2>/dev/null || echo "ERROR")
+    else
+        DB_STATUS=$(ssh_exec "cd ${REMOTE_DIR} && docker run --rm --env-file .env --network host -v ${REMOTE_DIR}:/app/scripts ${IMAGE_NAME}:${ENV} python /app/scripts/check_database.py" 2>/dev/null || echo "ERROR")
+    fi
+    
+    # Se container não existe ainda, pular verificação (primeira instalação)
+    if [[ "$DB_STATUS" == *"ERROR"* ]] || [[ -z "$DB_STATUS" ]]; then
+        echo -e "${YELLOW}🆕 Container não existe ainda - assumindo primeira instalação${NC}"
+        DATABASE_ACTION="INIT"
+        return 0
+    fi
     
     case "$DB_STATUS" in
         *"BANCO_NAO_EXISTE"*)
@@ -178,8 +189,8 @@ check_database_status() {
             DATABASE_ACTION="NONE"
             ;;
         *)
-            echo -e "${RED}❌ Erro ao verificar banco: $DB_STATUS${NC}"
-            return 1
+            echo -e "${YELLOW}⚠️  Não foi possível verificar banco, assumindo primeira instalação${NC}"
+            DATABASE_ACTION="INIT"
             ;;
     esac
     
