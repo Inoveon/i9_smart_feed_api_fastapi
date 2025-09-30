@@ -149,50 +149,14 @@ should_copy_path() {
     return 0  # Copiar
 }
 
-# Função para verificar estado do banco de dados
+# Função para verificar estado do banco de dados (versão simplificada)
 check_database_status() {
     echo -e "${YELLOW}🔍 Verificando estado do banco de dados...${NC}"
     
-    # Copiar script de verificação para o servidor
-    scp -i "$SSH_KEY" -o StrictHostKeyChecking=no \
-        scripts/check_database.py ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/
-    
-    # Executar verificação dentro do container Docker (onde as dependências estão)
-    if [ "$ENV" = "production" ]; then
-        DB_STATUS=$(ssh_exec "cd ${REMOTE_DIR} && sudo docker run --rm --env-file .env --network host -v ${REMOTE_DIR}:/app/scripts ${IMAGE_NAME}:${ENV} python /app/scripts/check_database.py" 2>/dev/null || echo "ERROR")
-    else
-        DB_STATUS=$(ssh_exec "cd ${REMOTE_DIR} && docker run --rm --env-file .env --network host -v ${REMOTE_DIR}:/app/scripts ${IMAGE_NAME}:${ENV} python /app/scripts/check_database.py" 2>/dev/null || echo "ERROR")
-    fi
-    
-    # Se container não existe ainda, pular verificação (primeira instalação)
-    if [[ "$DB_STATUS" == *"ERROR"* ]] || [[ -z "$DB_STATUS" ]]; then
-        echo -e "${YELLOW}🆕 Container não existe ainda - assumindo primeira instalação${NC}"
-        DATABASE_ACTION="INIT"
-        return 0
-    fi
-    
-    case "$DB_STATUS" in
-        *"BANCO_NAO_EXISTE"*)
-            echo -e "${RED}❌ Banco de dados não existe ou não acessível${NC}"
-            return 1
-            ;;
-        *"PRIMEIRA_INSTALACAO"*)
-            echo -e "${YELLOW}🆕 Primeira instalação detectada - banco existe mas sem estrutura${NC}"
-            DATABASE_ACTION="INIT"
-            ;;
-        *"MIGRACOES_PENDENTES"*)
-            echo -e "${BLUE}🔄 Migrações pendentes detectadas${NC}"
-            DATABASE_ACTION="MIGRATE"
-            ;;
-        *"BANCO_ATUALIZADO"*)
-            echo -e "${GREEN}✅ Banco de dados já está atualizado${NC}"
-            DATABASE_ACTION="NONE"
-            ;;
-        *)
-            echo -e "${YELLOW}⚠️  Não foi possível verificar banco, assumindo primeira instalação${NC}"
-            DATABASE_ACTION="INIT"
-            ;;
-    esac
+    # Versão simplificada que não trava - sempre assume que precisa aplicar migrações
+    # Alembic é inteligente e não aplica migrações já aplicadas
+    echo -e "${BLUE}🔄 Aplicando migrações (Alembic detecta automaticamente o que é necessário)${NC}"
+    DATABASE_ACTION="MIGRATE"
     
     return 0
 }
