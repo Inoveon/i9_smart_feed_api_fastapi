@@ -3,7 +3,14 @@ Service para sincronização de dados do Protheus (SQL Server) para o PostgreSQL
 Conexão READ-ONLY com SQL Server para garantir segurança
 """
 
-import pyodbc
+try:
+    import pyodbc
+    PYODBC_AVAILABLE = True
+except ImportError:
+    pyodbc = None
+    PYODBC_AVAILABLE = False
+    print("⚠️  pyodbc não disponível - funcionalidades SQL Server desabilitadas")
+
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -164,7 +171,7 @@ class ProtheusSyncService:
                     station = Station(
                         branch_id=branch_id,
                         code=str(station_num),
-                        name=f"Bomba {station_num}",
+                        name=f"Caixa {station_num}",
                         is_active=True
                     )
                     db.add(station)

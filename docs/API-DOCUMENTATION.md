@@ -1,61 +1,49 @@
-# 📚 Documentação Completa da API i9 Smart Campaigns
+# 📚 Documentação Completa da API i9 Smart Feed
 
 ## 🎯 Visão Geral
 
-A **i9 Smart Campaigns API** é uma API RESTful desenvolvida em FastAPI para gerenciamento de campanhas publicitárias em tablets/totems distribuídos em múltiplos postos. Esta documentação serve como referência completa para equipes que irão desenvolver o portal administrativo e integrar com a API.
+A **i9 Smart Feed API** é uma API RESTful desenvolvida em FastAPI para gerenciamento de campanhas publicitárias com imagens exibidas em tablets/totems distribuídos em múltiplos postos de combustível. Esta documentação serve como referência completa para desenvolvedores frontend, mobile e integrações.
 
-## 🔐 Informações de Acesso
+### Características Principais
 
-### Ambiente de Desenvolvimento
+- **Targeting Hierárquico**: 4 níveis (Global → Regional → Filial → Estação)
+- **Upload Múltiplo**: Suporte a upload de múltiplas imagens simultâneas
+- **Agendamento**: Campanhas com data/hora de início e fim
+- **Analytics**: Métricas em tempo real e relatórios customizáveis
+- **Cache Inteligente**: Redis para otimização de performance
+- **API para Tablets**: Endpoint específico para dispositivos
 
+## 🔗 Base URLs e Ambiente
+
+### Desenvolvimento
 ```yaml
 Base URL: http://localhost:8000
-API Documentation: http://localhost:8000/docs (Swagger UI)
+API Base: http://localhost:8000/api
+Swagger UI: http://localhost:8000/docs
 ReDoc: http://localhost:8000/redoc
 ```
 
-### Credenciais Padrão
-
-#### Portal Administrativo (JWT)
+### Produção
 ```yaml
-Username: admin
-Password: admin123
-Email: admin@i9smart.com.br
-Role: admin
+Base URL: https://api.i9smart.com.br
+API Base: https://api.i9smart.com.br/api
 ```
 
-#### Tablets/Totems (API Key)
-```yaml
-API Key: i9smart_campaigns_readonly_2025
-Header: X-API-Key
-```
+## 🔐 Autenticação
 
-### Banco de Dados
+### 1. Portal Administrativo - JWT Bearer Token
 
-```yaml
-Host: 10.0.10.5
-Port: 5432
-Database: i9_campaigns
-Username: campaigns_user
-Password: Camp@2025#Secure
-```
+**Fluxo de Autenticação:**
+1. Login → Recebe `access_token` (60 min) e `refresh_token` (7 dias)
+2. Requisições → Header: `Authorization: Bearer {access_token}`
+3. Renovação → Endpoint `/auth/refresh` com `refresh_token`
 
-## 🔑 Autenticação
+#### Login
+```http
+POST /api/auth/login
+Content-Type: application/x-www-form-urlencoded
 
-### 1. Portal Administrativo - JWT
-
-O portal usa autenticação JWT com Bearer Token. O fluxo é:
-
-1. **Login** → Recebe `access_token` e `refresh_token`
-2. **Requisições** → Envia `Bearer {access_token}` no header
-3. **Renovação** → Usa `refresh_token` para obter novo `access_token`
-
-#### Exemplo de Login
-
-```bash
-curl -X POST "http://localhost:8000/api/auth/login" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=admin&password=admin123"
+username=admin&password=admin123
 ```
 
 **Resposta:**
@@ -63,429 +51,827 @@ curl -X POST "http://localhost:8000/api/auth/login" \
 {
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer",
-  "user": {
-    "id": "uuid",
-    "username": "admin",
-    "email": "admin@i9smart.com.br",
-    "full_name": "Administrador",
-    "role": "admin",
-    "preferences": {
-      "theme": "light",
-      "palette": "blue"
+  "token_type": "bearer"
+}
+```
+
+#### Renovar Token
+```http
+POST /api/auth/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+### 2. Tablets/Totems - API Key
+
+**Header obrigatório:**
+```http
+X-API-Key: i9smart_campaigns_readonly_2025
+```
+
+## 📋 Endpoints Completos
+
+### 🔐 Autenticação (`/api/auth`)
+
+| Método | Endpoint | Descrição | Auth | Roles |
+|--------|----------|-----------|------|-------|
+| POST | `/login` | Login com username/email e senha | - | - |
+| POST | `/refresh` | Renovar access token | - | - |
+| GET | `/me` | Dados do usuário logado | JWT | todos |
+| PUT | `/me` | Atualizar perfil | JWT | todos |
+| PUT | `/me/password` | Alterar senha | JWT | todos |
+| DELETE | `/me` | Desativar conta | JWT | todos |
+
+#### Exemplo - Obter Perfil do Usuário
+```http
+GET /api/auth/me
+Authorization: Bearer {token}
+```
+
+**Resposta:**
+```json
+{
+  "id": "uuid",
+  "email": "admin@i9smart.com.br",
+  "username": "admin",
+  "full_name": "Administrador",
+  "role": "admin",
+  "is_active": true,
+  "is_verified": true,
+  "preferences": {
+    "theme": "light",
+    "palette": "blue"
+  },
+  "created_at": "2025-01-01T00:00:00Z",
+  "updated_at": "2025-01-20T10:30:00Z",
+  "token_info": {
+    "expires_in_seconds": 3540,
+    "expires_at": "2025-01-20T11:30:00Z"
+  }
+}
+```
+
+### 📢 Campanhas (`/api/campaigns`)
+
+| Método | Endpoint | Descrição | Auth | Roles |
+|--------|----------|-----------|------|-------|
+| GET | `/` | Listar campanhas | JWT | todos |
+| POST | `/` | Criar campanha | JWT | admin, editor |
+| GET | `/active` | Campanhas ativas (todas) | JWT | todos |
+| GET | `/active/{station_code}` | Campanhas ativas por estação | JWT | todos |
+| GET | `/{id}` | Obter campanha específica | JWT | todos |
+| PUT | `/{id}` | Atualizar campanha | JWT | admin, editor |
+| DELETE | `/{id}` | Deletar campanha (soft delete) | JWT | admin |
+| GET | `/{id}/metrics` | Métricas da campanha | JWT | todos |
+
+#### Exemplo - Criar Campanha
+```http
+POST /api/campaigns/
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+  "name": "Black Friday 2025",
+  "description": "Ofertas especiais de Black Friday",
+  "status": "scheduled",
+  "start_date": "2025-11-25T00:00:00Z",
+  "end_date": "2025-11-30T23:59:59Z",
+  "default_display_time": 5000,
+  "regions": ["Sudeste", "Sul"],
+  "branches": [],
+  "stations": [],
+  "priority": 90
+}
+```
+
+**Resposta:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "Black Friday 2025",
+  "description": "Ofertas especiais de Black Friday",
+  "status": "scheduled",
+  "start_date": "2025-11-25T00:00:00Z",
+  "end_date": "2025-11-30T23:59:59Z",
+  "default_display_time": 5000,
+  "regions": ["Sudeste", "Sul"],
+  "branches": [],
+  "stations": [],
+  "priority": 90,
+  "is_deleted": false,
+  "created_by": "user-uuid",
+  "created_at": "2025-01-20T10:30:00Z",
+  "updated_at": "2025-01-20T10:30:00Z"
+}
+```
+
+#### Exemplo - Campanhas Ativas por Estação
+```http
+GET /api/campaigns/active/001
+Authorization: Bearer {token}
+```
+
+**Resposta:**
+```json
+{
+  "station_code": "001",
+  "branch_code": "01",
+  "region": "Sudeste",
+  "campaigns": [
+    {
+      "id": "uuid",
+      "name": "Promoção Verão",
+      "description": "Descontos especiais",
+      "default_display_time": 5000,
+      "priority": 90,
+      "targeting_level": "branch"
+    }
+  ],
+  "total": 1,
+  "timestamp": "2025-01-20T10:30:00Z"
+}
+```
+
+### 🖼️ Imagens (`/api/campaigns/{id}/images` e `/api/images`)
+
+| Método | Endpoint | Descrição | Auth | Roles |
+|--------|----------|-----------|------|-------|
+| GET | `/campaigns/{id}/images` | Listar imagens da campanha | JWT | todos |
+| POST | `/campaigns/{id}/images` | Upload múltiplo de imagens | JWT | admin, editor |
+| PUT | `/campaigns/{id}/images/order` | Reordenar imagens | JWT | admin, editor |
+| DELETE | `/campaigns/{id}/images/{image_id}` | Deletar imagem | JWT | admin, editor |
+| PUT | `/images/{id}` | Atualizar dados da imagem | JWT | admin, editor |
+
+#### Exemplo - Upload Múltiplo de Imagens
+```http
+POST /api/campaigns/{campaign_id}/images
+Authorization: Bearer {token}
+Content-Type: multipart/form-data
+
+files: [arquivo1.jpg, arquivo2.png, arquivo3.webp]
+```
+
+**Resposta:**
+```json
+{
+  "campaign_id": "uuid",
+  "campaign_name": "Black Friday 2025",
+  "default_display_time": 5000,
+  "total": 3,
+  "uploaded_count": 3,
+  "images": [
+    {
+      "id": "image-uuid-1",
+      "filename": "campaign_uuid_1.jpg",
+      "original_filename": "arquivo1.jpg",
+      "url": "/static/uploads/campaigns/uuid/campaign_uuid_1.jpg",
+      "order": 1,
+      "display_time": 5000,
+      "title": null,
+      "description": null,
+      "active": true,
+      "size_bytes": 245789,
+      "mime_type": "image/jpeg",
+      "width": 1920,
+      "height": 1080,
+      "created_at": "2025-01-20T10:30:00Z"
+    }
+  ]
+}
+```
+
+#### Exemplo - Reordenar Imagens
+```http
+PUT /api/campaigns/{campaign_id}/images/order
+Authorization: Bearer {token}
+Content-Type: application/json
+
+["image-uuid-3", "image-uuid-1", "image-uuid-2"]
+```
+
+#### Exemplo - Atualizar Dados da Imagem
+```http
+PUT /api/images/{image_id}
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+  "title": "Banner Principal",
+  "description": "Imagem de destaque da campanha",
+  "display_time": 7000,
+  "active": true
+}
+```
+
+### 👥 Usuários (`/api/users`)
+
+| Método | Endpoint | Descrição | Auth | Roles |
+|--------|----------|-----------|------|-------|
+| GET | `/` | Listar usuários (paginado) | JWT | admin |
+| POST | `/` | Criar usuário | JWT | admin |
+| GET | `/statistics` | Estatísticas de usuários | JWT | admin |
+| GET | `/{user_id}` | Obter usuário específico | JWT | admin |
+| PUT | `/{user_id}` | Atualizar usuário | JWT | admin |
+| DELETE | `/{user_id}` | Desativar usuário | JWT | admin |
+| PUT | `/{user_id}/password` | Resetar senha | JWT | admin |
+
+### 🏢 Filiais (`/api/branches`)
+
+| Método | Endpoint | Descrição | Auth | Roles |
+|--------|----------|-----------|------|-------|
+| GET | `/` | Listar filiais (paginado) | JWT | todos |
+| GET | `/regions` | Listar regiões e estados | JWT | todos |
+| GET | `/active` | Filiais ativas | JWT | todos |
+| GET | `/by-code/{code}` | Buscar por código | JWT | todos |
+| GET | `/{id}` | Detalhes da filial | JWT | todos |
+| POST | `/` | Criar filial | JWT | admin |
+| PUT | `/{id}` | Atualizar filial | JWT | admin |
+| DELETE | `/{id}` | Desativar filial | JWT | admin |
+| GET | `/{id}/statistics` | Estatísticas da filial | JWT | todos |
+
+#### Exemplo - Listar Filiais
+```http
+GET /api/branches?page=1&limit=10&search=São Paulo&region=Sudeste
+Authorization: Bearer {token}
+```
+
+**Resposta:**
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "code": "01001",
+      "name": "Posto São Paulo Centro",
+      "city": "São Paulo",
+      "state": "SP",
+      "region": "Sudeste",
+      "is_active": true,
+      "stations_count": 5,
+      "created_at": "2025-01-01T00:00:00Z",
+      "updated_at": "2025-01-01T00:00:00Z"
+    }
+  ],
+  "page": 1,
+  "page_size": 10,
+  "total": 1,
+  "total_pages": 1,
+  "has_next": false,
+  "has_prev": false
+}
+```
+
+### 📍 Estações (`/api/stations`)
+
+| Método | Endpoint | Descrição | Auth | Roles |
+|--------|----------|-----------|------|-------|
+| GET | `/` | Listar estações (paginado) | JWT | todos |
+| GET | `/active` | Estações ativas | JWT | todos |
+| GET | `/available` | Estrutura completa filiais/estações | JWT | todos |
+| GET | `/by-branch-and-code/{branch_code}/{station_code}` | Buscar por códigos | JWT | todos |
+| GET | `/{id}` | Detalhes da estação | JWT | todos |
+| POST | `/` | Criar estação | JWT | admin |
+| PUT | `/{id}` | Atualizar estação | JWT | admin |
+| DELETE | `/{id}` | Desativar estação | JWT | admin |
+| GET | `/branches/{branch_id}/stations` | Estações de uma filial | JWT | todos |
+
+#### Exemplo - Estrutura Disponível
+```http
+GET /api/stations/available
+Authorization: Bearer {token}
+```
+
+**Resposta:**
+```json
+{
+  "regions": {
+    "Sudeste": [
+      {
+        "code": "01001",
+        "name": "Posto São Paulo Centro",
+        "state": "SP"
+      }
+    ]
+  },
+  "branches": {
+    "01001": {
+      "name": "Posto São Paulo Centro",
+      "state": "SP",
+      "region": "Sudeste",
+      "stations": [
+        {
+          "code": "001",
+          "name": "Caixa 1"
+        },
+        {
+          "code": "002",
+          "name": "Caixa 2"
+        }
+      ]
     }
   }
 }
 ```
 
-### 2. Tablets - API Key
-
-Tablets usam API Key no header para acesso somente leitura:
-
-```bash
-curl -X GET "http://localhost:8000/api/tablets/active/001" \
-  -H "X-API-Key: i9smart_campaigns_readonly_2025"
-```
-
-## 📋 Endpoints da API
-
-### 🔐 Autenticação (`/api/auth`)
-
-| Método | Endpoint | Descrição | Autenticação |
-|--------|----------|-----------|--------------|
-| POST | `/api/auth/login` | Login e obtenção de tokens | Não |
-| POST | `/api/auth/refresh` | Renovar access token | Não |
-| GET | `/api/auth/me` | Dados do usuário logado | JWT |
-| PUT | `/api/auth/me` | Atualizar perfil e preferências | JWT |
-| PUT | `/api/auth/password` | Alterar senha | JWT |
-
-### 📢 Campanhas (`/api/campaigns`)
-
-| Método | Endpoint | Descrição | Autenticação | Roles |
-|--------|----------|-----------|--------------|-------|
-| GET | `/api/campaigns/` | Listar todas campanhas | JWT | todos |
-| POST | `/api/campaigns/` | Criar nova campanha | JWT | admin, editor |
-| GET | `/api/campaigns/{id}` | Obter campanha específica | JWT | todos |
-| PUT | `/api/campaigns/{id}` | Atualizar campanha | JWT | admin, editor |
-| DELETE | `/api/campaigns/{id}` | Remover campanha (soft delete) | JWT | admin |
-| GET | `/api/campaigns/active/{station_id}` | Campanhas ativas por posto | JWT | todos |
-| GET | `/api/campaigns/{id}/metrics` | Métricas da campanha | JWT | todos |
-
-### 🖼️ Imagens (`/api/campaigns/{id}/images`)
-
-| Método | Endpoint | Descrição | Autenticação | Roles |
-|--------|----------|-----------|--------------|-------|
-| POST | `/api/campaigns/{id}/images` | Upload de imagens (múltiplas) | JWT | admin, editor |
-| GET | `/api/campaigns/{id}/images` | Listar imagens da campanha | JWT | todos |
-| PUT | `/api/campaigns/{id}/images/order` | Reordenar imagens | JWT | admin, editor |
-| DELETE | `/api/campaigns/{id}/images/{image_id}` | Remover imagem específica | JWT | admin, editor |
-| PUT | `/api/images/{id}` | Atualizar dados da imagem | JWT | admin, editor |
-| GET | `/api/images/{id}` | Obter dados da imagem | JWT | todos |
-
-### 🏢 Filiais (`/api/branches`)
-
-| Método | Endpoint | Descrição | Autenticação | Roles |
-|--------|----------|-----------|--------------|-------|
-| GET | `/api/branches` | Listar filiais (paginado) | JWT | todos |
-| GET | `/api/branches/{code}` | Obter filial específica | JWT | todos |
-| GET | `/api/branches/active` | Filiais ativas | JWT | todos |
-
-### 📍 Estações (`/api/stations`)
-
-| Método | Endpoint | Descrição | Autenticação | Roles |
-|--------|----------|-----------|--------------|-------|
-| GET | `/api/stations` | Listar estações (paginado) | JWT | todos |
-| GET | `/api/stations/{branch}/{code}` | Estação específica | JWT | todos |
-| GET | `/api/stations/available` | Estações disponíveis | JWT | todos |
-
 ### 📊 Analytics (`/api/analytics`)
 
-| Método | Endpoint | Descrição | Autenticação | Roles |
-|--------|----------|-----------|--------------|-------|
-| GET | `/api/analytics` | Dashboard geral com KPIs | JWT | todos |
-| GET | `/api/analytics/comparison` | Comparação entre períodos | JWT | todos |
-| GET | `/api/analytics/regions` | Analytics por região | JWT | todos |
+| Método | Endpoint | Descrição | Auth | Roles |
+|--------|----------|-----------|------|-------|
+| GET | `/` | Dashboard geral com KPIs | JWT | todos |
+| GET | `/comparison` | Comparação entre períodos | JWT | todos |
+| GET | `/regions` | Analytics por região | JWT | todos |
 
-### 📈 Métricas (`/api/metrics`)
+#### Exemplo - Dashboard Analytics
+```http
+GET /api/analytics?period=30
+Authorization: Bearer {token}
+```
 
-| Método | Endpoint | Descrição | Autenticação | Roles |
-|--------|----------|-----------|--------------|-------|
-| GET | `/api/metrics/dashboard` | Métricas do dashboard | JWT | todos |
-| GET | `/api/metrics/activity` | Atividade do sistema | JWT | todos |
-| GET | `/api/metrics/stations` | Métricas por estação | JWT | todos |
-| GET | `/api/metrics/system` | Métricas do sistema | JWT | admin |
+**Resposta:**
+```json
+{
+  "timestamp": "2025-01-20T10:30:00Z",
+  "period": {
+    "days": 30,
+    "start": "2024-12-21T10:30:00Z",
+    "end": "2025-01-20T10:30:00Z"
+  },
+  "kpis": {
+    "total_campaigns": 45,
+    "active_campaigns": 12,
+    "total_images": 234,
+    "activation_rate": 26.67,
+    "growth_rate": 15.2
+  },
+  "comparisons": {
+    "current_period": {
+      "campaigns": 18,
+      "period_days": 30
+    },
+    "previous_period": {
+      "campaigns": 15,
+      "period_days": 30
+    },
+    "change_percentage": 20.0
+  },
+  "trends": {
+    "daily": [
+      {
+        "date": "2025-01-20",
+        "total": 3,
+        "active": 2
+      }
+    ]
+  },
+  "top_creators": [
+    {
+      "username": "admin",
+      "email": "admin@i9smart.com.br",
+      "campaigns": 25
+    }
+  ]
+}
+```
 
 ### 📄 Relatórios (`/api/reports`)
 
-| Método | Endpoint | Descrição | Autenticação | Roles |
-|--------|----------|-----------|--------------|-------|
-| GET | `/api/reports` | Gerar relatórios customizados | JWT | todos |
-| GET | `/api/reports/export` | Exportar dados (CSV/JSON) | JWT | admin, editor |
-| GET | `/api/reports/templates` | Templates de relatórios | JWT | todos |
+| Método | Endpoint | Descrição | Auth | Roles |
+|--------|----------|-----------|------|-------|
+| GET | `/` | Gerar relatórios customizados | JWT | todos |
+| GET | `/export` | Exportar dados (CSV/JSON) | JWT | admin, editor |
+| GET | `/templates` | Templates pré-configurados | JWT | todos |
+
+#### Exemplo - Exportar Relatório
+```http
+GET /api/reports/export?format=csv&data_type=campaigns&start_date=2025-01-01&end_date=2025-01-31
+Authorization: Bearer {token}
+```
+
+### 🏥 Health Check (`/health` e `/api/health`)
+
+| Método | Endpoint | Descrição | Auth |
+|--------|----------|-----------|------|
+| GET | `/health/` | Health check básico | - |
+| GET | `/health/live` | Liveness probe | - |
+| GET | `/health/ready` | Readiness probe | - |
+| GET | `/health/detailed` | Check detalhado de componentes | - |
+
+#### Exemplo - Health Check Detalhado
+```http
+GET /health/detailed
+```
+
+**Resposta:**
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-01-20T10:30:00Z",
+  "service": "i9 Smart Campaigns API",
+  "version": "1.0.0",
+  "environment": "development",
+  "components": {
+    "database": {
+      "status": "healthy",
+      "latency_ms": 15.2,
+      "stats": {
+        "campaigns": 45,
+        "users": 8
+      }
+    },
+    "redis": {
+      "status": "healthy",
+      "latency_ms": 2.1,
+      "stats": {
+        "used_memory_human": "1.2M",
+        "connected_clients": 3
+      }
+    },
+    "system": {
+      "status": "healthy",
+      "cpu": {
+        "usage_percent": 15.3,
+        "cores": 8
+      },
+      "memory": {
+        "usage_percent": 45.2,
+        "available_gb": 4.2,
+        "total_gb": 8.0
+      }
+    }
+  }
+}
+```
+
+### 🔧 Admin (`/api/admin`)
+
+| Método | Endpoint | Descrição | Auth | Roles |
+|--------|----------|-----------|------|-------|
+| POST | `/sync/branches` | Sincronizar filiais do Protheus | JWT | admin |
+| GET | `/sync/status/{sync_id}` | Status de sincronização | JWT | admin |
+| GET | `/sync/history` | Histórico de sincronizações | JWT | admin |
+| GET | `/stats/overview` | Estatísticas do sistema | JWT | admin |
+| GET | `/scheduler/jobs` | Jobs agendados | JWT | admin |
+| POST | `/scheduler/trigger/{job_id}` | Executar job manualmente | JWT | admin |
 
 ### 📱 Tablets (`/api/tablets`)
 
-| Método | Endpoint | Descrição | Autenticação |
-|--------|----------|-----------|--------------|
-| GET | `/api/tablets/active/{station_id}` | Campanhas ativas (read-only) | API Key |
+**Requer API Key:** `X-API-Key: i9smart_campaigns_readonly_2025`
 
-## 📊 Modelos de Dados
+| Método | Endpoint | Descrição | Auth |
+|--------|----------|-----------|------|
+| GET | `/active` | Todas campanhas ativas | API Key |
+| GET | `/active/{station_code}` | Campanhas ativas por estação | API Key |
+| GET | `/images/{image_id}` | Download de imagem | API Key |
+| HEAD | `/images/{image_id}` | Check de cache de imagem | API Key |
+
+#### Exemplo - Campanhas para Tablet
+```http
+GET /api/tablets/active/001
+X-API-Key: i9smart_campaigns_readonly_2025
+```
+
+**Resposta:**
+```json
+{
+  "station_code": "001",
+  "branch_code": "01001",
+  "region": "Sudeste",
+  "campaigns": [
+    {
+      "id": "uuid",
+      "name": "Promoção Verão",
+      "description": "Descontos especiais",
+      "default_display_time": 5000,
+      "priority": 90,
+      "targeting_level": "branch",
+      "start_date": "2025-01-01T00:00:00Z",
+      "end_date": "2025-01-31T23:59:59Z",
+      "images": [
+        {
+          "id": "image-uuid",
+          "campaign_id": "uuid",
+          "order_index": 1,
+          "display_time": 5000,
+          "width": 1920,
+          "height": 1080,
+          "mime_type": "image/jpeg",
+          "size_bytes": 245789,
+          "checksum": "d41d8cd98f00b204e9800998ecf8427e",
+          "download_url": "/api/tablets/images/image-uuid"
+        }
+      ]
+    }
+  ],
+  "total": 1,
+  "timestamp": "2025-01-20T10:30:00Z",
+  "cache_ttl": 120
+}
+```
+
+## 📊 Modelos de Dados Detalhados
 
 ### Campaign
-
 ```typescript
 interface Campaign {
-  id: string;                    // UUID
-  name: string;                  // Nome da campanha
-  description?: string;          // Descrição opcional
+  id: string;                          // UUID
+  name: string;                        // Nome da campanha (3-255 chars)
+  description?: string;                // Descrição opcional
   status: 'active' | 'scheduled' | 'paused' | 'expired';
-  start_date: DateTime;          // Data/hora início
-  end_date: DateTime;            // Data/hora fim
-  default_display_time: number;  // Tempo em ms (padrão: 5000)
+  start_date: DateTime;                // ISO 8601
+  end_date: DateTime;                  // ISO 8601
+  default_display_time: number;        // Milissegundos (1000-60000)
   
-  // Targeting hierárquico (4 níveis)
-  stations?: string[];           // Nível 4: Estações específicas
-  branches?: string[];           // Nível 3: Filiais
-  regions?: string[];            // Nível 2: Regiões (Norte, Sul, etc)
-  // Nível 1: Global (quando todos vazios)
+  // Targeting hierárquico
+  regions: string[];                   // ["Norte", "Sudeste"]
+  branches: string[];                  // ["01001", "02001"]
+  stations: string[];                  // ["001", "002"]
   
-  priority: number;              // 0-100 (maior = mais importante)
-  is_deleted: boolean;           // Soft delete
+  priority: number;                    // 0-100 (default: 0)
+  is_deleted: boolean;                 // Soft delete
+  created_by?: string;                 // UUID do criador
   created_at: DateTime;
   updated_at: DateTime;
-  created_by?: string;           // UUID do usuário
 }
 ```
 
 ### CampaignImage
-
 ```typescript
 interface CampaignImage {
-  id: string;                    // UUID
-  campaign_id: string;           // UUID da campanha
-  filename: string;              // Nome do arquivo no storage
-  original_filename?: string;    // Nome original do upload
-  url: string;                   // URL completa da imagem
-  order_index: number;           // Ordem de exibição (0, 1, 2...)
-  display_time?: number;         // Override do tempo (ms)
-  title?: string;                // Título opcional
-  description?: string;          // Descrição opcional
-  active: boolean;               // Se está ativa
-  size_bytes?: number;           // Tamanho em bytes
-  mime_type?: string;            // image/jpeg, image/png
-  width?: number;                // Largura em pixels
-  height?: number;               // Altura em pixels
+  id: string;                          // UUID
+  campaign_id: string;                 // UUID da campanha
+  filename: string;                    // Nome no storage
+  original_filename?: string;          // Nome original
+  url: string;                         // URL completa
+  order: number;                       // Posição (1, 2, 3...)
+  display_time?: number;               // Override em ms
+  title?: string;                      // Título opcional
+  description?: string;                // Descrição opcional
+  active: boolean;                     // Ativa/inativa
+  size_bytes?: number;                 // Tamanho do arquivo
+  mime_type?: string;                  // image/jpeg, image/png, image/webp
+  width?: number;                      // Largura em pixels
+  height?: number;                     // Altura em pixels
   created_at: DateTime;
   updated_at: DateTime;
 }
 ```
 
 ### User
-
 ```typescript
 interface User {
-  id: string;                    // UUID
-  email: string;                 // Email único
-  username: string;              // Username único
-  full_name?: string;            // Nome completo
-  role: 'admin' | 'editor' | 'viewer';
-  is_active: boolean;
-  is_verified: boolean;
-  preferences: {                 // Preferências do usuário
+  id: string;                          // UUID
+  email: string;                       // Email único (lowercase)
+  username: string;                    // Username único (3-50 chars)
+  full_name?: string;                  // Nome completo
+  role: 'admin' | 'editor' | 'viewer'; // Role do usuário
+  is_active: boolean;                  // Conta ativa
+  is_verified: boolean;                // Email verificado
+  preferences: {
     theme: 'light' | 'dark';
     palette: 'blue' | 'emerald' | 'violet' | 'rose' | 'amber';
   };
+  last_login?: DateTime;               // Último login
   created_at: DateTime;
   updated_at: DateTime;
 }
 ```
 
-## 🚀 Exemplos de Uso - Imagens
-
-### Upload de Múltiplas Imagens
-
-```javascript
-// Upload de várias imagens de uma vez
-const formData = new FormData();
-formData.append('files', file1);
-formData.append('files', file2);
-formData.append('files', file3);
-
-// Opcional: adicionar metadados
-formData.append('metadata', JSON.stringify([
-  { title: 'Imagem 1', display_time: 3000 },
-  { title: 'Imagem 2', display_time: 5000 },
-  { title: 'Imagem 3', display_time: 4000 }
-]));
-
-const response = await fetch(
-  `http://localhost:8000/api/campaigns/${campaignId}/images`,
-  {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`
-    },
-    body: formData
-  }
-);
-
-const uploadedImages = await response.json();
+### Branch
+```typescript
+interface Branch {
+  id: string;                          // UUID
+  code: string;                        // Código único da filial
+  name: string;                        // Nome da filial
+  city?: string;                       // Cidade
+  state: string;                       // UF (2 chars)
+  region: string;                      // Região calculada
+  is_active: boolean;                  // Ativa/inativa
+  stations_count: number;              // Quantidade de estações
+  created_at: DateTime;
+  updated_at: DateTime;
+}
 ```
 
-### Listar Imagens da Campanha
-
-```javascript
-const response = await fetch(
-  `http://localhost:8000/api/campaigns/${campaignId}/images`,
-  {
-    headers: {
-      'Authorization': `Bearer ${token}`
-    }
-  }
-);
-
-const images = await response.json();
-/*
-[
-  {
-    "id": "uuid",
-    "filename": "campaign_123_image_1.jpg",
-    "url": "http://localhost:8000/static/uploads/campaign_123_image_1.jpg",
-    "order_index": 0,
-    "display_time": 5000,
-    "title": "Promoção Principal",
-    "size_bytes": 245789,
-    "mime_type": "image/jpeg",
-    "width": 1920,
-    "height": 1080
-  },
-  ...
-]
-*/
-```
-
-### Reordenar Imagens
-
-```javascript
-// Nova ordem: array de IDs das imagens
-await fetch(
-  `http://localhost:8000/api/campaigns/${campaignId}/images/order`,
-  {
-    method: 'PUT',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      image_order: [imageId3, imageId1, imageId2] // Nova sequência
-    })
-  }
-);
-```
-
-### Atualizar Dados de uma Imagem
-
-```javascript
-await fetch(
-  `http://localhost:8000/api/images/${imageId}`,
-  {
-    method: 'PUT',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      title: 'Novo Título',
-      description: 'Nova descrição',
-      display_time: 7000,
-      active: true
-    })
-  }
-);
-```
-
-### Deletar Imagem
-
-```javascript
-await fetch(
-  `http://localhost:8000/api/campaigns/${campaignId}/images/${imageId}`,
-  {
-    method: 'DELETE',
-    headers: {
-      'Authorization': `Bearer ${token}`
-    }
-  }
-);
+### Station
+```typescript
+interface Station {
+  id: string;                          // UUID
+  code: string;                        // Código na filial
+  name: string;                        // Nome da estação
+  branch_id: string;                   // UUID da filial
+  branch?: Branch;                     // Dados da filial
+  address?: string;                    // Endereço opcional
+  is_active: boolean;                  // Ativa/inativa
+  created_at: DateTime;
+  updated_at: DateTime;
+}
 ```
 
 ## 🎯 Sistema de Targeting Hierárquico
 
-O sistema suporta 4 níveis de targeting para campanhas:
+### Níveis de Targeting (4 níveis)
 
-### Níveis de Targeting
-
-1. **Global** - Campanha aparece em TODAS as estações
-   ```json
-   {
-     "stations": [],
-     "branches": [],
-     "regions": []
-   }
-   ```
-
-2. **Regional** - Campanha aparece em todas estações de uma região
-   ```json
-   {
-     "regions": ["Norte", "Nordeste"],
-     "branches": [],
-     "stations": []
-   }
-   ```
-
-3. **Por Filial** - Campanha aparece em todas estações de filiais específicas
-   ```json
-   {
-     "branches": ["010101", "020202"],
-     "stations": []
-   }
-   ```
-
-4. **Por Estação** - Campanha aparece apenas em estações específicas
-   ```json
-   {
-     "branches": ["010101"],
-     "stations": ["001", "002"]
-   }
-   ```
-
-### Regiões Disponíveis
-- Norte
-- Nordeste
-- Centro-Oeste
-- Sudeste
-- Sul
-
-## ⚠️ Regras de Negócio - Imagens
-
-### Upload de Imagens
-
-1. **Formatos aceitos**: 
-   - JPEG/JPG
-   - PNG
-   - WEBP
-   - GIF (estático)
-
-2. **Limites**:
-   - Tamanho máximo por arquivo: 10MB
-   - Upload múltiplo: até 20 imagens por vez
-   - Total por campanha: ilimitado
-
-3. **Processamento**:
-   - Redimensionamento automático se > 1920x1080
-   - Otimização de qualidade (85% JPEG)
-   - Geração de thumbnails (opcional)
-
-4. **Ordenação**:
-   - Índices sequenciais (0, 1, 2...)
-   - Reordenação automática ao deletar
-   - Drag & drop no frontend
-
-5. **Display Time**:
-   - Mínimo: 1000ms (1 segundo)
-   - Máximo: 60000ms (60 segundos)
-   - Padrão: 5000ms (5 segundos)
-   - Override individual por imagem
-
-### Validações de Upload
-
-```javascript
-// Validação no frontend antes do upload
-function validateImage(file) {
-  const maxSize = 10 * 1024 * 1024; // 10MB
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-  
-  if (file.size > maxSize) {
-    throw new Error('Arquivo muito grande (máx: 10MB)');
-  }
-  
-  if (!allowedTypes.includes(file.type)) {
-    throw new Error('Tipo de arquivo não permitido');
-  }
-  
-  return true;
+1. **Global** - Todas as estações (arrays vazios)
+```json
+{
+  "regions": [],
+  "branches": [],
+  "stations": []
 }
 ```
 
-## 📱 Exemplo Completo - Fluxo de Criação de Campanha com Imagens
+2. **Regional** - Todas estações da região
+```json
+{
+  "regions": ["Sudeste", "Sul"],
+  "branches": [],
+  "stations": []
+}
+```
+
+3. **Por Filial** - Todas estações das filiais
+```json
+{
+  "regions": [],
+  "branches": ["01001", "02002"],
+  "stations": []
+}
+```
+
+4. **Por Estação** - Estações específicas
+```json
+{
+  "regions": [],
+  "branches": ["01001"],
+  "stations": ["001", "002"]
+}
+```
+
+### Regiões Brasileiras Disponíveis
+- **Norte**: AC, AM, AP, PA, RO, RR, TO
+- **Nordeste**: AL, BA, CE, MA, PB, PE, PI, RN, SE
+- **Centro-Oeste**: DF, GO, MS, MT
+- **Sudeste**: ES, MG, RJ, SP
+- **Sul**: PR, RS, SC
+
+## ⚠️ Regras de Negócio e Validações
+
+### Upload de Imagens
+
+**Formatos Aceitos:**
+- JPEG/JPG
+- PNG
+- WebP
+
+**Limites:**
+- Tamanho máximo: 10MB por arquivo
+- Upload simultâneo: até 10 arquivos
+- Total por campanha: ilimitado
+
+**Processamento Automático:**
+- Redimensionamento se > 1920x1080
+- Otimização de qualidade
+- Geração de thumbnails
+- Conversão para WebP (quando solicitado)
+
+**Display Time:**
+- Mínimo: 1000ms (1 segundo)
+- Máximo: 60000ms (60 segundos)
+- Padrão: 5000ms (5 segundos)
+
+### Validações de Campanha
+
+```typescript
+// Validações aplicadas automaticamente
+interface CampaignValidation {
+  name: string;                        // Obrigatório, 3-255 chars
+  start_date: DateTime;                // Obrigatório
+  end_date: DateTime;                  // Obrigatório, > start_date
+  regions: string[];                   // Deve existir em REGIONS
+  stations: string[];                  // Requer branches se informado
+  priority: number;                    // 0-100
+  default_display_time: number;       // 1000-60000ms
+}
+```
+
+### Hierarquia de Permissões
+
+| Ação | Admin | Editor | Viewer |
+|------|-------|--------|--------|
+| Criar campanhas | ✅ | ✅ | ❌ |
+| Editar campanhas | ✅ | ✅ | ❌ |
+| Deletar campanhas | ✅ | ❌ | ❌ |
+| Upload imagens | ✅ | ✅ | ❌ |
+| Ver campanhas | ✅ | ✅ | ✅ |
+| Analytics | ✅ | ✅ | ✅ |
+| Gerenciar usuários | ✅ | ❌ | ❌ |
+| Admin endpoints | ✅ | ❌ | ❌ |
+
+## 🔄 Paginação Padrão
+
+**Parâmetros de Query:**
+```typescript
+interface PaginationParams {
+  page: number;                        // Página atual (default: 1)
+  limit: number;                       // Itens por página (1-100, default: 10)
+  search?: string;                     // Busca textual
+  sort?: string;                       // Campo de ordenação
+  order?: 'asc' | 'desc';             // Direção (default: asc)
+}
+```
+
+**Formato de Resposta:**
+```typescript
+interface PaginatedResponse<T> {
+  items: T[];                          // Itens da página atual
+  page: number;                        // Página atual
+  page_size: number;                   // Itens por página
+  total: number;                       // Total de itens
+  total_pages: number;                 // Total de páginas
+  has_next: boolean;                   // Tem próxima página
+  has_prev: boolean;                   // Tem página anterior
+}
+```
+
+## 🛡️ Códigos de Status HTTP
+
+| Código | Situação | Descrição |
+|--------|----------|-----------|
+| 200 | OK | Sucesso |
+| 201 | Created | Recurso criado |
+| 204 | No Content | Sucesso sem conteúdo |
+| 400 | Bad Request | Dados inválidos |
+| 401 | Unauthorized | Token inválido/expirado |
+| 403 | Forbidden | Sem permissão |
+| 404 | Not Found | Recurso não encontrado |
+| 409 | Conflict | Conflito (ex: duplicado) |
+| 422 | Unprocessable Entity | Erro de validação |
+| 429 | Too Many Requests | Rate limit excedido |
+| 500 | Internal Server Error | Erro do servidor |
+
+## 🚀 Exemplos Práticos Completos
+
+### Fluxo Completo - Criar Campanha com Imagens
 
 ```javascript
-class CampaignService {
+class CampaignManager {
   constructor(apiUrl, token) {
     this.apiUrl = apiUrl;
     this.token = token;
   }
 
-  // 1. Criar campanha
-  async createCampaign(campaignData) {
+  async createCompleteCampaign(campaignData, imageFiles) {
+    try {
+      // 1. Criar campanha
+      const campaign = await this.createCampaign(campaignData);
+      console.log('Campanha criada:', campaign.id);
+
+      // 2. Upload das imagens
+      if (imageFiles.length > 0) {
+        const images = await this.uploadImages(campaign.id, imageFiles);
+        console.log(`${images.uploaded_count} imagens enviadas`);
+      }
+
+      // 3. Ativar campanha
+      const activatedCampaign = await this.updateCampaign(campaign.id, {
+        status: 'active'
+      });
+
+      return activatedCampaign;
+    } catch (error) {
+      console.error('Erro ao criar campanha:', error);
+      throw error;
+    }
+  }
+
+  async createCampaign(data) {
     const response = await fetch(`${this.apiUrl}/api/campaigns/`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${this.token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(campaignData)
+      body: JSON.stringify(data)
     });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Erro ao criar campanha');
+    }
+
     return response.json();
   }
 
-  // 2. Upload de imagens
   async uploadImages(campaignId, files, metadata = []) {
     const formData = new FormData();
     
-    files.forEach(file => {
+    files.forEach((file, index) => {
       formData.append('files', file);
     });
-    
+
     if (metadata.length > 0) {
       formData.append('metadata', JSON.stringify(metadata));
     }
@@ -500,27 +886,16 @@ class CampaignService {
         body: formData
       }
     );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Erro ao enviar imagens');
+    }
+
     return response.json();
   }
 
-  // 3. Reordenar imagens
-  async reorderImages(campaignId, imageIds) {
-    const response = await fetch(
-      `${this.apiUrl}/api/campaigns/${campaignId}/images/order`,
-      {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${this.token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ image_order: imageIds })
-      }
-    );
-    return response.json();
-  }
-
-  // 4. Ativar campanha
-  async activateCampaign(campaignId) {
+  async updateCampaign(campaignId, data) {
     const response = await fetch(
       `${this.apiUrl}/api/campaigns/${campaignId}`,
       {
@@ -529,311 +904,295 @@ class CampaignService {
           'Authorization': `Bearer ${this.token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ status: 'active' })
+        body: JSON.stringify(data)
       }
     );
-    return response.json();
-  }
-}
 
-// Uso
-const service = new CampaignService('http://localhost:8000', token);
-
-// Criar campanha completa
-async function createCompleteCampaign() {
-  // 1. Criar campanha
-  const campaign = await service.createCampaign({
-    name: 'Black Friday 2025',
-    description: 'Promoções especiais de Black Friday',
-    start_date: '2025-11-20T00:00:00Z',
-    end_date: '2025-11-30T23:59:59Z',
-    default_display_time: 5000,
-    regions: ['Sudeste', 'Sul'], // Targeting regional
-    priority: 90
-  });
-
-  // 2. Upload de imagens
-  const files = [file1, file2, file3];
-  const metadata = [
-    { title: 'Banner Principal', display_time: 7000 },
-    { title: 'Ofertas', display_time: 5000 },
-    { title: 'Condições', display_time: 3000 }
-  ];
-  
-  const images = await service.uploadImages(campaign.id, files, metadata);
-
-  // 3. Reordenar se necessário
-  const newOrder = images.map(img => img.id).reverse();
-  await service.reorderImages(campaign.id, newOrder);
-
-  // 4. Ativar campanha
-  await service.activateCampaign(campaign.id);
-  
-  return campaign;
-}
-```
-
-## 🔄 Paginação
-
-Endpoints que suportam paginação:
-
-```typescript
-interface PaginatedResponse<T> {
-  items: T[];
-  page: number;
-  page_size: number;
-  total: number;
-  total_pages: number;
-  has_next: boolean;
-  has_prev: boolean;
-}
-```
-
-Parâmetros de query:
-- `page`: Número da página (padrão: 1)
-- `limit` ou `page_size`: Itens por página (padrão: 10, máx: 100)
-- `sort_by`: Campo para ordenação
-- `sort_order`: 'asc' ou 'desc'
-- `search`: Busca textual
-
-Exemplo:
-```bash
-GET /api/branches?page=1&limit=20&search=São Paulo&sort_by=name&sort_order=asc
-```
-
-## 🛡️ Segurança
-
-### Headers Recomendados
-
-```javascript
-const headers = {
-  'Content-Type': 'application/json',
-  'Authorization': `Bearer ${token}`,
-  'X-Request-ID': generateUUID(), // Para tracking
-  'Accept-Language': 'pt-BR',
-  'X-Client-Version': '1.0.0'
-};
-```
-
-### Tratamento de Erros
-
-```javascript
-async function apiRequest(url, options) {
-  try {
-    const response = await fetch(url, options);
-    
     if (!response.ok) {
       const error = await response.json();
-      
-      switch (response.status) {
-        case 401:
-          // Token expirado - renovar
-          await refreshToken();
-          return apiRequest(url, options);
-        case 403:
-          // Sem permissão
-          showError('Você não tem permissão para esta ação');
-          break;
-        case 422:
-          // Erro de validação
-          showValidationErrors(error.detail);
-          break;
-        default:
-          showError(error.message || 'Erro desconhecido');
-      }
-      throw error;
+      throw new Error(error.detail || 'Erro ao atualizar campanha');
     }
-    
+
     return response.json();
-  } catch (error) {
-    console.error('API Error:', error);
-    throw error;
   }
 }
+
+// Exemplo de uso
+const manager = new CampaignManager('http://localhost:8000', token);
+
+const campaignData = {
+  name: 'Natal 2025',
+  description: 'Campanha especial de Natal',
+  start_date: '2025-12-01T00:00:00Z',
+  end_date: '2025-12-31T23:59:59Z',
+  default_display_time: 6000,
+  regions: ['Sudeste'],
+  priority: 95
+};
+
+const imageFiles = [file1, file2, file3];
+
+manager.createCompleteCampaign(campaignData, imageFiles)
+  .then(campaign => {
+    console.log('Campanha completa criada:', campaign);
+  })
+  .catch(error => {
+    console.error('Erro:', error.message);
+  });
 ```
 
-## 📊 Analytics e Métricas
-
-### Dashboard Metrics
+### Gerenciamento de Estado no Frontend
 
 ```javascript
-// Obter métricas do dashboard
-const metrics = await fetch('http://localhost:8000/api/metrics/dashboard', {
-  headers: { 'Authorization': `Bearer ${token}` }
-});
+// Hook React para gerenciar campanhas
+import { useState, useEffect } from 'react';
 
-/*
-Resposta:
-{
-  "overview": {
-    "total_campaigns": 45,
-    "total_active": 12,
-    "total_images": 234,
-    "total_users": 8
-  },
-  "recent_activity": {
-    "last_7_days": 5,
-    "last_30_days": 18
-  },
-  "top_priority_campaigns": [...]
-}
-*/
-```
+function useCampaigns() {
+  const [campaigns, setCampaigns] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-### Exportar Relatórios
-
-```javascript
-// Exportar para CSV
-const csvData = await fetch(
-  'http://localhost:8000/api/reports/export?format=csv&data_type=campaigns',
-  {
-    headers: { 'Authorization': `Bearer ${token}` }
-  }
-);
-
-// Download do arquivo
-const blob = await csvData.blob();
-const url = window.URL.createObjectURL(blob);
-const a = document.createElement('a');
-a.href = url;
-a.download = 'campaigns.csv';
-a.click();
-```
-
-## 🧪 Testando a API
-
-### Postman Collection
-
-Importe a collection completa:
-```
-http://localhost:8000/openapi.json
-```
-
-### Testes Automatizados
-
-```bash
-# Rodar testes
-pytest tests/
-
-# Com coverage
-pytest --cov=app tests/
-
-# Testes específicos
-pytest tests/test_images.py -v
-```
-
-### Exemplos cURL
-
-```bash
-# Upload de imagem única
-curl -X POST "http://localhost:8000/api/campaigns/${CAMPAIGN_ID}/images" \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -F "files=@image1.jpg"
-
-# Upload múltiplo com metadata
-curl -X POST "http://localhost:8000/api/campaigns/${CAMPAIGN_ID}/images" \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -F "files=@image1.jpg" \
-  -F "files=@image2.jpg" \
-  -F 'metadata=[{"title":"Imagem 1"},{"title":"Imagem 2"}]'
-
-# Listar imagens
-curl -X GET "http://localhost:8000/api/campaigns/${CAMPAIGN_ID}/images" \
-  -H "Authorization: Bearer ${TOKEN}"
-
-# Deletar imagem
-curl -X DELETE "http://localhost:8000/api/campaigns/${CAMPAIGN_ID}/images/${IMAGE_ID}" \
-  -H "Authorization: Bearer ${TOKEN}"
-```
-
-## 📱 Considerações para Frontend
-
-### Upload de Imagens - UX Recomendada
-
-1. **Drag & Drop**: Área para arrastar imagens
-2. **Preview**: Mostrar miniaturas antes do upload
-3. **Progress Bar**: Indicador de progresso individual
-4. **Reordenação**: Drag & drop para reordenar
-5. **Edição Inline**: Editar título e tempo de exibição
-6. **Validação Visual**: Destacar erros (tamanho, formato)
-7. **Bulk Actions**: Selecionar múltiplas para deletar
-
-### Componente React Exemplo
-
-```jsx
-function ImageUploader({ campaignId }) {
-  const [files, setFiles] = useState([]);
-  const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState({});
-
-  const handleDrop = (acceptedFiles) => {
-    // Validar arquivos
-    const validFiles = acceptedFiles.filter(file => {
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error(`${file.name} é muito grande (máx: 10MB)`);
-        return false;
-      }
-      return true;
-    });
+  const fetchCampaigns = async (filters = {}) => {
+    setLoading(true);
+    setError(null);
     
-    setFiles(prev => [...prev, ...validFiles]);
-  };
-
-  const uploadImages = async () => {
-    setUploading(true);
-    const formData = new FormData();
-    
-    files.forEach(file => {
-      formData.append('files', file);
-    });
-
     try {
+      const params = new URLSearchParams(filters);
       const response = await fetch(
-        `/api/campaigns/${campaignId}/images`,
+        `/api/campaigns?${params}`,
         {
-          method: 'POST',
           headers: {
-            'Authorization': `Bearer ${token}`
-          },
-          body: formData,
-          onUploadProgress: (progressEvent) => {
-            const percentCompleted = Math.round(
-              (progressEvent.loaded * 100) / progressEvent.total
-            );
-            setProgress(percentCompleted);
+            'Authorization': `Bearer ${getToken()}`
           }
         }
       );
-      
-      if (response.ok) {
-        toast.success('Imagens enviadas com sucesso!');
-        setFiles([]);
+
+      if (!response.ok) {
+        throw new Error('Erro ao carregar campanhas');
       }
-    } catch (error) {
-      toast.error('Erro ao enviar imagens');
+
+      const data = await response.json();
+      setCampaigns(data);
+    } catch (err) {
+      setError(err.message);
     } finally {
-      setUploading(false);
+      setLoading(false);
     }
   };
 
+  const createCampaign = async (campaignData) => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/campaigns/', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${getToken()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(campaignData)
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail);
+      }
+
+      const newCampaign = await response.json();
+      setCampaigns(prev => [newCampaign, ...prev]);
+      return newCampaign;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCampaigns();
+  }, []);
+
+  return {
+    campaigns,
+    loading,
+    error,
+    fetchCampaigns,
+    createCampaign
+  };
+}
+```
+
+### Componente de Upload de Imagens
+
+```javascript
+import { useDropzone } from 'react-dropzone';
+import { useState } from 'react';
+
+function ImageUploader({ campaignId, onUploadComplete }) {
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    accept: {
+      'image/*': ['.jpeg', '.jpg', '.png', '.webp']
+    },
+    maxSize: 10 * 1024 * 1024, // 10MB
+    maxFiles: 10,
+    onDrop: handleUpload
+  });
+
+  async function handleUpload(acceptedFiles) {
+    if (acceptedFiles.length === 0) return;
+
+    setUploading(true);
+    setProgress(0);
+
+    try {
+      const formData = new FormData();
+      acceptedFiles.forEach(file => {
+        formData.append('files', file);
+      });
+
+      const xhr = new XMLHttpRequest();
+      
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const percentComplete = (e.loaded / e.total) * 100;
+          setProgress(percentComplete);
+        }
+      });
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status === 200) {
+          const result = JSON.parse(xhr.responseText);
+          onUploadComplete(result);
+          setProgress(100);
+        } else {
+          throw new Error('Erro no upload');
+        }
+      });
+
+      xhr.open('POST', `/api/campaigns/${campaignId}/images`);
+      xhr.setRequestHeader('Authorization', `Bearer ${getToken()}`);
+      xhr.send(formData);
+
+    } catch (error) {
+      console.error('Erro no upload:', error);
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
-    <Dropzone onDrop={handleDrop} accept="image/*" maxSize={10485760}>
-      {/* UI do dropzone */}
-    </Dropzone>
+    <div className="upload-zone">
+      <div {...getRootProps()} className={`dropzone ${isDragActive ? 'active' : ''}`}>
+        <input {...getInputProps()} />
+        
+        {uploading ? (
+          <div className="upload-progress">
+            <div className="progress-bar">
+              <div 
+                className="progress-fill" 
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <p>Enviando... {Math.round(progress)}%</p>
+          </div>
+        ) : (
+          <div className="upload-message">
+            {isDragActive ? (
+              <p>Solte as imagens aqui...</p>
+            ) : (
+              <div>
+                <p>Arraste imagens aqui ou clique para selecionar</p>
+                <small>Máximo 10 arquivos, 10MB cada (JPEG, PNG, WebP)</small>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 ```
 
-## 📞 Suporte e Contato
+## 🧪 Testando a API
 
-- **Projeto**: i9 Smart Campaigns
+### cURL Examples
+
+```bash
+# Login
+curl -X POST "http://localhost:8000/api/auth/login" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=admin&password=admin123"
+
+# Criar campanha
+curl -X POST "http://localhost:8000/api/campaigns/" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Teste API",
+    "start_date": "2025-01-25T00:00:00Z",
+    "end_date": "2025-01-31T23:59:59Z",
+    "regions": ["Sudeste"]
+  }'
+
+# Upload de imagens
+curl -X POST "http://localhost:8000/api/campaigns/$CAMPAIGN_ID/images" \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "files=@image1.jpg" \
+  -F "files=@image2.png"
+
+# Listar campanhas ativas para tablet
+curl -X GET "http://localhost:8000/api/tablets/active/001" \
+  -H "X-API-Key: i9smart_campaigns_readonly_2025"
+
+# Exportar relatório
+curl -X GET "http://localhost:8000/api/reports/export?format=csv&data_type=campaigns" \
+  -H "Authorization: Bearer $TOKEN" \
+  -o campaigns.csv
+```
+
+### Postman Collection
+
+Importe via OpenAPI Schema:
+```
+http://localhost:8000/openapi.json
+```
+
+## 🔧 Rate Limiting e Cache
+
+### Rate Limits
+- **Portal (JWT)**: 1000 req/min por usuário
+- **Tablets (API Key)**: 500 req/min por chave
+- **Upload**: 10 uploads/min por usuário
+
+### Cache Strategy
+- **Campanhas ativas**: 2 minutos (Redis)
+- **Filiais/Estações**: 10 minutos (Redis)
+- **Analytics**: 5 minutos (Redis)
+- **Imagens**: Cache HTTP + ETag
+
+## 📞 Suporte e Informações
+
+### Informações Técnicas
 - **Versão API**: 1.0.0
-- **Documentação Swagger**: `/docs`
+- **Framework**: FastAPI 0.109+
+- **Python**: 3.11+
+- **Database**: PostgreSQL 15
+- **Cache**: Redis 7
+- **Storage**: MinIO (S3-compatible)
+
+### Documentação Adicional
+- **Swagger UI**: `/docs`
 - **ReDoc**: `/redoc`
 - **OpenAPI Schema**: `/openapi.json`
+- **Health Check**: `/health/detailed`
+
+### Versionamento
+A API segue versionamento semântico. Mudanças que quebram compatibilidade serão comunicadas com antecedência.
 
 ---
 
-**Última atualização**: 25/01/2025
-**Status**: API em produção
-**Próximas features**: Websockets para notificações real-time, analytics avançado com IA
+**Última atualização**: 20/01/2025  
+**Próximas funcionalidades**: WebSockets para notificações real-time, Analytics avançado com IA, Integração com APIs externas
