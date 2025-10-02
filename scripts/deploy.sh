@@ -167,7 +167,12 @@ apply_database_migrations() {
         "INIT")
             echo -e "${YELLOW}🏗️ Inicializando estrutura do banco de dados...${NC}"
             if [ "$ENV" = "production" ]; then
-                ssh_exec "cd ${REMOTE_DIR} && sudo docker run --rm --env-file .env --network host ${IMAGE_NAME}:${ENV} alembic upgrade head"
+                ssh_exec "cd ${REMOTE_DIR} && sudo docker run --rm \
+                    --network i9-smart-feed-network-prod \
+                    -e DATABASE_URL=postgresql://feed_user:i9_feed_production_password_2025_secure@postgres:5432/i9_feed \
+                    -v ${REMOTE_DIR}/migrations:/app/migrations \
+                    -v ${REMOTE_DIR}/alembic.ini:/app/alembic.ini \
+                    ${IMAGE_NAME}:${ENV} alembic upgrade head"
             else
                 ssh_exec "cd ${REMOTE_DIR} && docker run --rm --env-file .env --network host ${IMAGE_NAME}:${ENV} alembic upgrade head"
             fi
@@ -178,7 +183,12 @@ apply_database_migrations() {
         "MIGRATE")
             echo -e "${YELLOW}🔄 Aplicando migrações pendentes...${NC}"
             if [ "$ENV" = "production" ]; then
-                ssh_exec "cd ${REMOTE_DIR} && sudo docker run --rm --env-file .env --network host ${IMAGE_NAME}:${ENV} alembic upgrade head"
+                ssh_exec "cd ${REMOTE_DIR} && sudo docker run --rm \
+                    --network i9-smart-feed-network-prod \
+                    -e DATABASE_URL=postgresql://feed_user:i9_feed_production_password_2025_secure@postgres:5432/i9_feed \
+                    -v ${REMOTE_DIR}/migrations:/app/migrations \
+                    -v ${REMOTE_DIR}/alembic.ini:/app/alembic.ini \
+                    ${IMAGE_NAME}:${ENV} alembic upgrade head"
             else
                 ssh_exec "cd ${REMOTE_DIR} && docker run --rm --env-file .env --network host ${IMAGE_NAME}:${ENV} alembic upgrade head"
             fi
@@ -331,7 +341,8 @@ echo -e "${GREEN}🛡️  Pasta static/ PROTEGIDA - não será sobrescrita${NC}"
 
 # Transferir arquivos de configuração
 scp_copy Dockerfile
-scp_copy docker-compose.yml  
+scp_copy docker-compose.yml
+[ -f "docker-compose.production.yml" ] && scp_copy docker-compose.production.yml || true
 scp_copy requirements.txt
 scp_copy alembic.ini
 [ -f ".dockerignore" ] && scp_copy .dockerignore || true
@@ -361,30 +372,60 @@ else
     ssh_exec "docker stop ${CONTAINER_NAME} ${REDIS_CONTAINER} 2>/dev/null || true && docker rm ${CONTAINER_NAME} ${REDIS_CONTAINER} 2>/dev/null || true"
 fi
 
-# 6. Verificar estado do banco e aplicar migrações condicionalmente
-if ! check_database_status; then
-    echo -e "${RED}❌ Falha na verificação do banco de dados${NC}"
-    exit 1
-fi
-
-# 7. Garantir volumes persistentes antes de iniciar containers
+# 6. Garantir volumes persistentes
 ensure_persistent_volumes
 
-# 8. Aplicar migrações baseado no estado do banco
-apply_database_migrations
+# 7. Iniciar infraestrutura (PostgreSQL/Redis) antes das migrações
+echo -e "${YELLOW}🚀 Iniciando infraestrutura...${NC}"
 
-# 9. Iniciar novos containers com volumes persistentes
-echo -e "${YELLOW}🚀 Iniciando containers...${NC}"
-
-# Iniciar Redis primeiro
-echo -e "${BLUE}📦 Iniciando Redis...${NC}"
 if [ "$ENV" = "production" ]; then
-    ssh_exec "sudo docker run -d --name i9-feed-redis \
-        -p ${REDIS_PORT}:6379 \
-        -v redis-data:/data \
-        --restart unless-stopped \
-        redis:7-alpine redis-server --appendonly yes --appendfsync everysec" || echo -e "${YELLOW}⚠️  Redis já rodando${NC}"
+    echo -e "${BLUE}🐳 Iniciando infraestrutura com Docker Compose...${NC}"
+    
+    # Criar arquivo .env para docker-compose
+    ssh_exec "cd ${REMOTE_DIR} && cat > .env.compose << 'EOF'
+VERSION=production
+APP_PORT=${APP_PORT:-8000}
+POSTGRES_PASSWORD=i9_feed_production_password_2025_secure
+JWT_SECRET_KEY=production-jwt-secret-key-change-this-2025
+JWT_ALGORITHM=HS256
+JWT_EXPIRATION_MINUTES=1440
+API_KEY_TABLETS=production-api-key-change-this-secure-2025
+APP_NAME=i9 Smart Feed API
+APP_VERSION=1.0.0
+SECRET_KEY=production-secret-key-change-this-to-secure-random-string-2025
+CORS_ORIGINS=https://feed.i9smart.com.br
+MINIO_ACCESS_KEY=i9_feed_minio_admin
+MINIO_SECRET_KEY=i9_feed_minio_password_2025_secure
+MINIO_BUCKET=feed-images
+MINIO_SECURE=false
+MAX_UPLOAD_SIZE=10485760
+ALLOWED_EXTENSIONS=jpg,jpeg,png,webp
+EOF"
+    
+    # Parar containers existentes de forma limpa
+    echo -e "${YELLOW}🛑 Parando containers anteriores...${NC}"
+    ssh_exec "cd ${REMOTE_DIR} && sudo docker compose -f docker-compose.production.yml down --remove-orphans 2>/dev/null || true"
+    
+    # Remover containers órfãos manualmente se existirem
+    ssh_exec "sudo docker rm -f i9-feed-api i9-feed-postgres i9-feed-redis i9-feed-minio 2>/dev/null || true"
+    
+    # Iniciar infraestrutura com docker compose
+    echo -e "${BLUE}📦 Iniciando PostgreSQL, Redis e MinIO...${NC}"
+    ssh_exec "cd ${REMOTE_DIR} && sudo docker compose -f docker-compose.production.yml --env-file .env.compose up -d postgres redis minio"
+    
+    # Aguardar PostgreSQL estar pronto
+    echo -e "${YELLOW}⏳ Aguardando PostgreSQL estar pronto...${NC}"
+    ssh_exec "for i in {1..30}; do \
+        if sudo docker exec i9-feed-postgres pg_isready -U feed_user -d i9_feed; then \
+            echo 'PostgreSQL pronto!'; \
+            break; \
+        fi; \
+        echo 'Aguardando PostgreSQL... (\$i/30)'; \
+        sleep 2; \
+    done"
 else
+    echo -e "${BLUE}🐳 Iniciando Redis para desenvolvimento...${NC}"
+    # Desenvolvimento: apenas Redis (PostgreSQL é externo)
     ssh_exec "docker run -d --name i9-feed-redis \
         -p ${REDIS_PORT}:6379 \
         -v redis-data:/data \
@@ -392,18 +433,20 @@ else
         redis:7-alpine redis-server --appendonly yes --appendfsync everysec" || echo -e "${YELLOW}⚠️  Redis já rodando${NC}"
 fi
 
-# Iniciar API
-echo -e "${BLUE}🚀 Iniciando API...${NC}"
+# 8. Verificar estado do banco e aplicar migrações
+check_database_status
+apply_database_migrations
+
+# 9. Iniciar API
+echo -e "${YELLOW}🚀 Iniciando API...${NC}"
+
 if [ "$ENV" = "production" ]; then
-    ssh_exec "sudo docker run -d --name i9-feed-api \
-        -p ${APP_PORT}:8000 \
-        -v feed-static:/app/static \
-        -v feed-uploads:/app/uploads \
-        -v feed-media:/app/media \
-        --env-file ${REMOTE_DIR}/.env \
-        --restart unless-stopped \
-        ${IMAGE_NAME}:${ENV}"
+    echo -e "${BLUE}🐳 Iniciando API com Docker Compose...${NC}"
+    # Produção: usar docker compose para melhor gerenciamento
+    ssh_exec "cd ${REMOTE_DIR} && sudo docker compose -f docker-compose.production.yml --env-file .env.compose up -d i9-feed-api"
 else
+    echo -e "${BLUE}🐳 Iniciando API para desenvolvimento...${NC}"
+    # Desenvolvimento: iniciar apenas a API (Redis já iniciado, PostgreSQL é externo)
     ssh_exec "docker run -d --name i9-feed-api \
         -p ${APP_PORT}:8000 \
         -v feed-static:/app/static \
